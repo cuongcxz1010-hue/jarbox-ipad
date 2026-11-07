@@ -12,6 +12,8 @@
 #include "jvm.h"
 #include "jvm_util.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
 
 // ============================================================
 // Form builder state — accumulated by Java calls, flushed on show
@@ -67,6 +69,33 @@ int j2me_ui_get_form_item_type(int index) { return index < g_form_item_count ? g
 const char *j2me_ui_get_form_item_label(int index) { return index < g_form_item_count ? g_form_items[index].label : ""; }
 const char *j2me_ui_get_form_item_text(int index) { return index < g_form_item_count ? g_form_items[index].text : ""; }
 int j2me_ui_get_form_item_param1(int index) { return index < g_form_item_count ? g_form_items[index].intParam1 : 0; }
+int j2me_ui_get_form_item_param2(int index) { return index < g_form_item_count ? g_form_items[index].intParam2 : 0; }
+
+// ============================================================
+// Text typed in native TextBox / TextField views, handed back to Java.
+// Swift stores the value (main thread) before posting the command event;
+// Java takes it (JVM thread) when that event is processed.
+// ============================================================
+
+static pthread_mutex_t g_text_lock = PTHREAD_MUTEX_INITIALIZER;
+static char *g_text_results[MAX_FORM_ITEMS];   // malloc'd UTF-8; NULL = unchanged
+
+void j2me_ui_set_text_result(int index, const char *utf8) {
+    if (index < 0 || index >= MAX_FORM_ITEMS) return;
+    pthread_mutex_lock(&g_text_lock);
+    free(g_text_results[index]);
+    g_text_results[index] = utf8 ? strdup(utf8) : NULL;
+    pthread_mutex_unlock(&g_text_lock);
+}
+
+static void clear_text_results(void) {
+    pthread_mutex_lock(&g_text_lock);
+    for (int i = 0; i < MAX_FORM_ITEMS; i++) {
+        free(g_text_results[i]);
+        g_text_results[i] = NULL;
+    }
+    pthread_mutex_unlock(&g_text_lock);
+}
 
 int j2me_ui_get_command_count(void) { return g_form_command_count; }
 const char *j2me_ui_get_command_label(int index) { return index < g_form_command_count ? g_form_commands[index].label : ""; }
@@ -93,6 +122,7 @@ static s32 n_formBegin(Runtime *runtime, JClass *clazz) {
     g_form_command_count = 0;
     g_list_item_count = 0;
     g_form_type = type;
+    clear_text_results();   // values typed into a previous screen must not leak
 
     if (jtitle) {
         Utf8String *ustr = utf8_create();
@@ -248,6 +278,24 @@ static s32 n_setAlertText(Runtime *runtime, JClass *clazz) {
     return RUNTIME_STATUS_NORMAL;
 }
 
+// --- takeTextResult(index): text typed natively for item `index`, or null ---
+
+static s32 n_takeTextResult(Runtime *runtime, JClass *clazz) {
+    JniEnv *env = runtime->jnienv;
+    s32 index = env->localvar_getInt(runtime->localvar, 0);
+    char *value = NULL;
+    if (index >= 0 && index < MAX_FORM_ITEMS) {
+        pthread_mutex_lock(&g_text_lock);
+        value = g_text_results[index];
+        g_text_results[index] = NULL;
+        pthread_mutex_unlock(&g_text_lock);
+    }
+    Instance *jstr = value ? env->jstring_create_cstr(value, runtime) : NULL;
+    free(value);
+    env->push_ref(runtime->stack, jstr);
+    return RUNTIME_STATUS_NORMAL;
+}
+
 // --- platformRequest: open URL in system browser ---
 
 static s32 n_platformRequest(Runtime *runtime, JClass *clazz) {
@@ -287,6 +335,7 @@ static java_native_method j2me_ui_methods[] = {
     {CLS, "setListType",      "(I)V",                                            n_setListType},
     {CLS, "setAlertText",     "(Ljava/lang/String;I)V",                          n_setAlertText},
     {CLS, "platformRequest",  "(Ljava/lang/String;)V",                           n_platformRequest},
+    {CLS, "takeTextResult",   "(I)Ljava/lang/String;",                           n_takeTextResult},
 };
 
 #undef CLS

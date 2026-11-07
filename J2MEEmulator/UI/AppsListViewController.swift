@@ -490,7 +490,22 @@ class AppsListViewController: UIViewController,
                                   image: UIImage(systemName: "gauge.with.needle"),
                                   children: fpsActions)
 
-            let settings = UIMenu(options: .displayInline, children: [toggle3D, resMenu, fpsMenu])
+            let currentOrientation = GameOrientation.saved(forJar: app.path)
+            let orientationActions: [UIAction] = [
+                (GameOrientation.auto, "Tự xoay theo iPad"),
+                (GameOrientation.landscape, "Luôn nằm ngang"),
+                (GameOrientation.portrait, "Luôn dựng dọc"),
+            ].map { value, title in
+                UIAction(title: title, state: value == currentOrientation ? .on : .off) { _ in
+                    GameOrientation.save(value, forJar: app.path)
+                }
+            }
+            let orientationMenu = UIMenu(title: "Hướng màn hình",
+                                         image: UIImage(systemName: "rotate.right"),
+                                         children: orientationActions)
+
+            let settings = UIMenu(options: .displayInline,
+                                  children: [toggle3D, resMenu, orientationMenu, fpsMenu])
             let actions = UIMenu(options: .displayInline, children: [clearData, delete])
             return UIMenu(children: [settings, actions])
         })
@@ -512,7 +527,13 @@ class AppsListViewController: UIViewController,
     }
 
     private static let resolutionOptions: [(label: String, w: Int, h: Int)] = [
-        // Common J2ME resolutions (portrait / square only)
+        // Landscape (good on a sideways iPad, for games that adapt to the screen size)
+        ("320×240 (ngang)", 320, 240),
+        ("400×240 (ngang)", 400, 240),
+        ("480×320 (ngang)", 480, 320),
+        ("640×360 (ngang)", 640, 360),
+        ("800×480 (ngang)", 800, 480),
+        // Common J2ME resolutions (portrait / square)
         ("101×80",   101,  80),
         ("128×128",  128, 128),
         ("128×160",  128, 160),

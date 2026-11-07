@@ -68,6 +68,8 @@ public class Display {
             ((List) d).showNative();
         } else if (d instanceof Alert) {
             ((Alert) d).showNative();
+        } else if (d instanceof TextBox) {
+            ((TextBox) d).showNative();
         }
 
         if (old instanceof Canvas && old != d) {
@@ -161,6 +163,9 @@ public class Display {
                     Display.eventQueue.postEvent(CanvasEvent.getInstance(c, ceType, nativeEvent[3]));
                 } else if (type == 10) {
                     int cmdId = nativeEvent[3];
+                    // Text typed in native views reaches Java before the listener runs
+                    if (current instanceof TextBox) ((TextBox) current).syncFromNative();
+                    else if (current instanceof Form) ((Form) current).syncFromNative();
                     if (current != null) current.fireCommandAction(cmdId);
                 } else if (type == 11 && current instanceof List) {
                     ((List) current).handleListSelect(nativeEvent[3]);

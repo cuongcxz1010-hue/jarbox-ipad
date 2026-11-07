@@ -45,6 +45,17 @@ public class Form extends Screen {
     }
 
     /** Serialize form to native bridge and show it. */
+    /** Pull text typed into native text fields (native item index == form item index). */
+    void syncFromNative() {
+        for (int i = 0; i < items.size(); i++) {
+            Item item = items.get(i);
+            if (item instanceof TextField) {
+                String typed = NativeBridge.takeTextResult(i);
+                if (typed != null) ((TextField) item).setString(typed);
+            }
+        }
+    }
+
     public void showNative() {
         NativeBridge.formBegin(getTitle(), 0); // type 0 = form
         for (Item item : items) {

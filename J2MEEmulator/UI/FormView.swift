@@ -83,6 +83,7 @@ class FormView: UIView {
         stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
         commandBar.arrangedSubviews.forEach { $0.removeFromSuperview() }
         commandButtons.removeAll()
+        fieldDelegates.removeAll()
 
         // Title
         titleLabel.text = String(cString: j2me_ui_get_form_title())
@@ -98,7 +99,9 @@ class FormView: UIView {
             case 0: // StringItem
                 addStringItem(label: label, text: text)
             case 1: // TextField
-                addTextField(label: label, text: text)
+                addTextField(index: Int(i), label: label, text: text,
+                             maxSize: Int(j2me_ui_get_form_item_param1(Int32(i))),
+                             constraints: Int(j2me_ui_get_form_item_param2(Int32(i))))
             default:
                 addStringItem(label: label, text: text) // fallback
             }
@@ -147,7 +150,9 @@ class FormView: UIView {
         stackView.addArrangedSubview(container)
     }
 
-    private func addTextField(label: String, text: String) {
+    private var fieldDelegates: [J2METextFieldDelegate] = []
+
+    private func addTextField(index: Int, label: String, text: String, maxSize: Int, constraints: Int) {
         let container = UIStackView()
         container.axis = .vertical
         container.spacing = 4
@@ -162,8 +167,14 @@ class FormView: UIView {
 
         let tf = UITextField()
         tf.text = text
+        tf.tag = index   // native item index == Java Form item index
         tf.borderStyle = .roundedRect
         tf.font = .systemFont(ofSize: 16)
+        tf.applyJ2MEConstraints(constraints)
+        let delegate = J2METextFieldDelegate(maxLength: maxSize)
+        delegate.onReturn = { [weak tf] in tf?.resignFirstResponder() }
+        fieldDelegates.append(delegate)   // UITextField.delegate is weak
+        tf.delegate = delegate
         tf.addTarget(self, action: #selector(textFieldChanged(_:)), for: .editingChanged)
         container.addArrangedSubview(tf)
 
@@ -171,14 +182,14 @@ class FormView: UIView {
     }
 
     @objc private func commandTapped(_ sender: UIButton) {
+        endEditing(true)
         let cmdId = Int32(sender.tag)
         j2me_input_post_key(Int32(J2ME_UI_COMMAND_ACTION), cmdId)
     }
 
+    /// Hand the typed text to Java; it is applied to the TextField when a command fires.
     @objc private func textFieldChanged(_ sender: UITextField) {
-        // Post text change event — value synced back to Java via input queue
-        // TODO: associate with specific Item index for multi-TextField forms
-        // TextField value changed — TODO: sync back to Java Item
+        j2me_ui_set_text_result(Int32(sender.tag), sender.text ?? "")
     }
 }
 
