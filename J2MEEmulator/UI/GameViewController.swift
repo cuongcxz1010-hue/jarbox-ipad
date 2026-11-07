@@ -207,11 +207,49 @@ class GameViewController: UIViewController {
         let canvasRatio: CGFloat = CGFloat(emulatorView.canvasWidth) / CGFloat(emulatorView.canvasHeight)
         let pad: CGFloat = 8
 
+        // iPad: the screen is close to 4:3, so a full-height game screen leaves
+        // side panels narrower than the joystick/numpad (sized from view height).
+        // Cap the game screen width and keep the controls inside their panels.
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
+        let controlGap: CGFloat = 12
+
+        let emulatorTop: NSLayoutConstraint
+        let emulatorBottom: NSLayoutConstraint
+        if isPad {
+            emulatorTop = emulatorView.topAnchor.constraint(
+                greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor, constant: pad)
+            emulatorBottom = emulatorView.bottomAnchor.constraint(
+                lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -pad)
+        } else {
+            emulatorTop = emulatorView.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor, constant: pad)
+            emulatorBottom = emulatorView.bottomAnchor.constraint(
+                equalTo: view.bottomAnchor, constant: -pad)
+        }
+
+        let joystickSize = joystick.widthAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.42)
+        if isPad { joystickSize.priority = .defaultHigh }
+
         // Layout guides for centering controls in the side panels
         let leftArea = UILayoutGuide()
         let rightArea = UILayoutGuide()
         view.addLayoutGuide(leftArea)
         view.addLayoutGuide(rightArea)
+
+        if isPad {
+            let fillHeight = emulatorView.heightAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.heightAnchor, constant: -2 * pad)
+            fillHeight.priority = .defaultHigh
+            NSLayoutConstraint.activate([
+                emulatorView.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
+                emulatorView.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.5),
+                fillHeight,
+                joystick.widthAnchor.constraint(lessThanOrEqualTo: leftArea.widthAnchor,
+                                                constant: -2 * controlGap),
+                numpad.widthAnchor.constraint(lessThanOrEqualTo: rightArea.widthAnchor,
+                                              constant: -2 * controlGap),
+            ])
+        }
 
         NSLayoutConstraint.activate([
             leftArea.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
@@ -233,14 +271,14 @@ class GameViewController: UIViewController {
 
             // Emulator: centered, aspect ratio, full height with padding
             emulatorView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emulatorView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: pad),
-            emulatorView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -pad),
+            emulatorTop,
+            emulatorBottom,
             emulatorView.widthAnchor.constraint(equalTo: emulatorView.heightAnchor, multiplier: canvasRatio),
 
             // Joystick: centered horizontally between safe area left and emulator left
             joystick.centerXAnchor.constraint(equalTo: leftArea.centerXAnchor),
             joystick.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 80),
-            joystick.widthAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.42),
+            joystickSize,
             joystick.heightAnchor.constraint(equalTo: joystick.widthAnchor),
 
             // Numpad: centered in right panel, same width as joystick, top 48pt

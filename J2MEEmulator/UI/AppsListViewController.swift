@@ -23,7 +23,9 @@ class AppsListViewController: UIViewController,
     }
 
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .portrait }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        UIDevice.current.userInterfaceIdiom == .pad ? .all : .portrait
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -112,7 +114,7 @@ class AppsListViewController: UIViewController,
         guard width > 0, width != lastLayoutWidth else { return }
         lastLayoutWidth = width
 
-        let columns: CGFloat = 4
+        let columns: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 6 : 4
         let iconSize = SpringboardCell.iconSize
         let cellWidth = (width + iconSize) / (columns + 1)
         let horizontalInset = (cellWidth - iconSize) / 2
