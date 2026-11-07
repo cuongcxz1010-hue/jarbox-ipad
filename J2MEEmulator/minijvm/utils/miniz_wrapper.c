@@ -1,6 +1,19 @@
 #include "miniz.h"
 #include "miniz_wrapper.h"
 
+/*
+ * Find an entry the way a phone's JVM does: exact (case-sensitive) match
+ * first, so obfuscated JARs that contain both "a.class" and "A.class" load
+ * the right class. Fall back to a case-insensitive match for games that ask
+ * for resources with the wrong letter case.
+ */
+static int zip_locate_entry(mz_zip_archive *zip, char const *filename) {
+    int index = mz_zip_reader_locate_file(zip, filename, NULL, MZ_ZIP_FLAG_CASE_SENSITIVE);
+    if (index < 0) {
+        index = mz_zip_reader_locate_file(zip, filename, NULL, 0);
+    }
+    return index;
+}
 
 s32 zip_loadfile(char const *jarpath, char const *filename, ByteBuf *buf) {
     int file_index = 0;
@@ -17,7 +30,7 @@ s32 zip_loadfile(char const *jarpath, char const *filename, ByteBuf *buf) {
         ret = -1;
     } else {
 
-        file_index = mz_zip_reader_locate_file(&zipArchive, filename, NULL, 0);//
+        file_index = zip_locate_entry(&zipArchive, filename);
         if (!mz_zip_reader_file_stat(&zipArchive, file_index, &file_stat)) {
             ret = -1;
         } else {
@@ -54,7 +67,7 @@ s32 zip_loadfile_to_mem(char const *jarpath, char const *filename, c8 *buf, s64 
         ret = -1;
     } else {
 
-        file_index = mz_zip_reader_locate_file(&zipArchive, filename, NULL, 0);//
+        file_index = zip_locate_entry(&zipArchive, filename);
         if (!mz_zip_reader_file_stat(&zipArchive, file_index, &file_stat)) {
             ret = -1;
         } else {
@@ -84,7 +97,7 @@ s64 zip_get_file_unzip_size(char const *jarpath, char const *filename) {
         ret = -1;
     } else {
 
-        file_index = mz_zip_reader_locate_file(&zipArchive, filename, NULL, 0);//
+        file_index = zip_locate_entry(&zipArchive, filename);
         if (!mz_zip_reader_file_stat(&zipArchive, file_index, &file_stat)) {
             ret = -1;
         } else {
@@ -111,7 +124,7 @@ s32 zip_get_file_index(char const *jarpath, char const *filename) {
         ret = -1;
     } else {
 
-        file_index = mz_zip_reader_locate_file(&zipArchive, filename, NULL, 0);//
+        file_index = zip_locate_entry(&zipArchive, filename);
         if (!mz_zip_reader_file_stat(&zipArchive, file_index, &file_stat)) {
             ret = -1;
         } else {

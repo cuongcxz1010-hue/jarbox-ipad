@@ -28,6 +28,8 @@
 	</dict>
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Game Java có thể cần kết nối tới máy chủ trong cùng mạng WiFi (ví dụ server chạy trên máy tính của bạn).</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
