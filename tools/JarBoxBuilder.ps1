@@ -19,7 +19,8 @@
 param(
     [switch]$SelfTest,
     [string]$Build,
-    [switch]$DownloadLatest
+    [switch]$DownloadLatest,
+    [string]$Follow          # run id of a build already running on GitHub
 )
 
 $ErrorActionPreference = 'Stop'
@@ -88,7 +89,7 @@ $StepNames = @{
 }
 
 function Save-Ipa([string]$runId, [string]$artifactName) {
-    $tmp = Join-Path $sync.OutDir ('.download-' + $runId)
+    $tmp = Join-Path $sync.OutDir ('.download-' + $runId + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
     New-Item -ItemType Directory -Force $tmp | Out-Null
     if ($artifactName) {
@@ -108,6 +109,13 @@ function Save-Ipa([string]$runId, [string]$artifactName) {
 
 try {
     New-Item -ItemType Directory -Force $sync.OutDir | Out-Null
+
+    if ($sync.Mode -eq 'follow') {
+        # Follow a build that is already running on GitHub (started elsewhere)
+        $ver = $sync.Version
+        $runId = $sync.RunId
+        Log ('Theo dõi bản build v' + $ver + ' đang chạy: https://github.com/' + $sync.Repo + '/actions/runs/' + $runId)
+    }
 
     if ($sync.Mode -eq 'build') {
         $ver = $sync.Version
@@ -152,7 +160,9 @@ try {
         if (-not $runId) { throw 'Không tìm thấy bản build vừa tạo trên GitHub.' }
         $sync.RunId = $runId
         Log ('Theo dõi tại: https://github.com/' + $sync.Repo + '/actions/runs/' + $runId)
+    }
 
+    if ($sync.Mode -eq 'build' -or $sync.Mode -eq 'follow') {
         # 3. Watch progress
         $t0 = Get-Date
         $lastStep = ''
@@ -305,10 +315,26 @@ function Get-Problem {
 # ============================================================
 # Worker launcher
 # ============================================================
-function New-Worker([string]$mode, [string]$version) {
+function Get-ActiveRun {
+    # A build that is queued or running on GitHub right now (or $null)
+    $r = Invoke-Exe $GhExe @('run', 'list', '-R', $Repo, '--workflow', $Workflow, '--limit', '5',
+                             '--json', 'databaseId,displayTitle,status') $RepoDir
+    if ($r.Code -ne 0 -or -not $r.Out) { return $null }
+    $runs = $r.Out | ConvertFrom-Json
+    foreach ($run in @($runs)) {
+        if ($run.status -ne 'completed') {
+            $v = ''
+            if ($run.displayTitle -match 'v(\d+(\.\d+){0,2})\s*$') { $v = $Matches[1] }
+            return [pscustomobject]@{ Id = [string]$run.databaseId; Version = $v }
+        }
+    }
+    return $null
+}
+
+function New-Worker([string]$mode, [string]$version, [string]$runId = $null) {
     $script:sync = [hashtable]::Synchronized(@{
         Log = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
-        Status = ''; Done = $false; Success = $false; IpaPath = $null; RunId = $null
+        Status = ''; Done = $false; Success = $false; IpaPath = $null; RunId = $runId
         CancelRequested = $false; Mode = $mode; Version = $version
         RepoDir = $RepoDir; OutDir = $OutDir; GhExe = $GhExe; GitExe = $GitExe
         Repo = $Repo; Workflow = $Workflow; Branch = $Branch
@@ -334,7 +360,7 @@ function Complete-Worker {
 # ============================================================
 # Command-line modes (no window)
 # ============================================================
-if ($SelfTest -or $Build -or $DownloadLatest) {
+if ($SelfTest -or $Build -or $DownloadLatest -or $Follow) {
     try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
     Write-Host "RepoDir    : $RepoDir"
     Write-Host "gh         : $GhExe"
@@ -351,6 +377,10 @@ if ($SelfTest -or $Build -or $DownloadLatest) {
         $v = $Build.Trim().TrimStart('v', 'V')
         if ($v -notmatch '^\d+(\.\d+){0,2}$') { Write-Host 'Phiên bản không hợp lệ'; exit 1 }
         New-Worker 'build' $v
+    } elseif ($Follow) {
+        $t = Invoke-Exe $GhExe @('run', 'view', $Follow, '-R', $Repo, '--json', 'displayTitle', '--jq', '.displayTitle') $RepoDir
+        if ($t.Code -ne 0 -or $t.Out -notmatch 'v(\d+(\.\d+){0,2})\s*$') { Write-Host "Không đọc được phiên bản của bản build $Follow"; exit 1 }
+        New-Worker 'follow' $Matches[1] $Follow
     } else {
         New-Worker 'latest' ''
     }
@@ -541,6 +571,26 @@ $btnBuild.Add_Click({
         return
     }
     if (-not (Assert-Ready)) { return }
+
+    # A build is already running on GitHub → offer to follow it instead
+    $active = Get-ActiveRun
+    if ($active) {
+        $label = if ($active.Version) { 'v' + $active.Version } else { '#' + $active.Id }
+        $a = [System.Windows.Forms.MessageBox]::Show(
+            "Đang có bản build $label chạy trên GitHub.`n`n" +
+            "Yes  = Theo dõi bản đó và tự tải về khi xong`n" +
+            "No   = Vẫn build bản v$ver (sẽ chạy sau khi bản kia xong)`n" +
+            "Cancel = Hủy", 'JarBox Builder', 'YesNoCancel', 'Question')
+        if ($a -eq 'Cancel') { return }
+        if ($a -eq 'Yes' -and $active.Version) {
+            $txtLog.Clear()
+            Add-Log "=== Theo dõi bản build $label ==="
+            New-Worker 'follow' $active.Version $active.Id
+            Set-Busy $true $true
+            $timer.Start()
+            return
+        }
+    }
 
     $existing = Join-Path $OutDir "JarBox-iPad-v$ver.ipa"
     if (Test-Path $existing) {

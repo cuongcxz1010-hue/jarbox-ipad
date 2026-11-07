@@ -18,9 +18,10 @@ on:
 permissions:
   contents: read
 
+# A second build request waits for the running one instead of cancelling it
 concurrency:
   group: build-ipa-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
