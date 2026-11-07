@@ -1,14 +1,19 @@
 name: Build iPad IPA
+run-name: Build iPad IPA v${{ inputs.version || 'auto' }}
 
 # Builds an UNSIGNED .ipa on a macOS runner. Install it on the iPad with
 # Sideloadly (Windows), which signs it with your own Apple ID.
+#
+# Started on demand: by tools/JarBoxBuilder.ps1 (the "JarBox Builder" app),
+# or from the GitHub website: Actions -> Build iPad IPA -> Run workflow.
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
+    inputs:
+      version:
+        description: 'Phiên bản (vd: 0.1.1). Để trống = dùng số trong project.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -25,6 +30,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Resolve version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          V="$INPUT_VERSION"
+          if [ -z "$V" ]; then
+            V=$(grep -m1 'MARKETING_VERSION = ' J2MEEmulator.xcodeproj/project.pbxproj | sed -E 's/.*= *"?([^";]+)"?;.*/\1/')
+          fi
+          if ! echo "$V" | grep -qE '^[0-9]+(\.[0-9]+){0,2}$'; then
+            echo "::error::Invalid version '$V' (expected e.g. 0.1.1)"
+            exit 1
+          fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "Version $V, build number $GITHUB_RUN_NUMBER"
 
       - name: Select newest Xcode 26
         run: |
@@ -55,6 +75,8 @@ jobs:
               -sdk iphoneos \
               -destination 'generic/platform=iOS' \
               -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+              MARKETING_VERSION="$VERSION" \
+              CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGN_IDENTITY="" \
@@ -86,28 +108,31 @@ jobs:
           ls -lh "$APP/minijvm_rt.jar" "$APP/j2me_api.jar"
           find "$APP" -name '*.sf2' -exec ls -lh {} \;
           PL="$APP/Info.plist"
+          echo "Version: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PL") ($(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PL"))"
           echo "MinimumOSVersion: $(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$PL")"
           echo "UIDeviceFamily:"; /usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily' "$PL"
           /usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily' "$PL" | grep -q '^ *2$' \
             || { echo "ERROR: app is not built for iPad"; exit 1; }
 
+          IPA="JarBox-iPad-v$VERSION.ipa"
           STAGE="$RUNNER_TEMP/ipa"
           mkdir -p "$STAGE/Payload"
           ditto "$APP" "$STAGE/Payload/JarBox.app"
-          (cd "$STAGE" && zip -qry "$GITHUB_WORKSPACE/JarBox-iPad-unsigned.ipa" Payload)
-          ls -lh JarBox-iPad-unsigned.ipa
+          (cd "$STAGE" && zip -qry "$GITHUB_WORKSPACE/$IPA" Payload)
+          ls -lh "$IPA"
+          echo "IPA_NAME=$IPA" >> "$GITHUB_ENV"
 
       - name: Upload IPA
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: JarBox-iPad-ipa
-          path: JarBox-iPad-unsigned.ipa
+          name: JarBox-iPad-v${{ env.VERSION }}
+          path: ${{ env.IPA_NAME }}
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
       - name: Upload build log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: xcodebuild-log
           path: ${{ runner.temp }}/xcodebuild.log
