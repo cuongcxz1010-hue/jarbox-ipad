@@ -28,5 +28,46 @@
 	</dict>
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>J2ME Game (JAR)</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.sun.java-archive</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.sun.java-archive</string>
+			<key>UTTypeDescription</key>
+			<string>Java Archive</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.archive</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>jar</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/java-archive</string>
+					<string>application/x-java-archive</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

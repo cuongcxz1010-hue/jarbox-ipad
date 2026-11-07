@@ -48,6 +48,13 @@ class AppsListViewController: UIViewController,
                 self?.addAppTapped()
             })
 
+        // "Nhật ký" — share the diagnostics log (Documents/logs)
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: "Nhật ký", primaryAction: UIAction { [weak self] _ in
+                guard let self else { return }
+                Self.shareLogs(from: self, barButtonItem: self.navigationItem.leftBarButtonItem)
+            })
+
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
         layout.minimumInteritemSpacing = 0
@@ -73,7 +80,7 @@ class AppsListViewController: UIViewController,
         ])
 
         // Empty state
-        emptyStateLabel.text = "No Games Yet\nTap + to add a .jar file"
+        emptyStateLabel.text = "Chưa có game\nBấm + để thêm file .jar"
         emptyStateLabel.textColor = .secondaryLabel
         emptyStateLabel.font = .systemFont(ofSize: 17)
         emptyStateLabel.textAlignment = .center
@@ -93,10 +100,29 @@ class AppsListViewController: UIViewController,
         scanApps()
     }
 
+    private var checkedLastCrash = false
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         NotificationCenter.default.addObserver(self, selector: #selector(appDidBecomeActive),
                                                name: UIApplication.didBecomeActiveNotification, object: nil)
+
+        // A game was running when the app last ended → it most likely crashed.
+        if !checkedLastCrash {
+            checkedLastCrash = true
+            if let name = DiagnosticsLog.takeCrashedGameName() {
+                let alert = UIAlertController(
+                    title: "Game bị thoát đột ngột",
+                    message: "Lần trước \"\(name)\" bị đóng bất ngờ (có thể do lỗi giả lập).\n\nChia sẻ nhật ký để báo lỗi?",
+                    preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "Chia sẻ nhật ký", style: .default) { [weak self] _ in
+                    guard let self else { return }
+                    Self.shareLogs(from: self, barButtonItem: self.navigationItem.leftBarButtonItem)
+                })
+                alert.addAction(UIAlertAction(title: "Bỏ qua", style: .cancel))
+                present(alert, animated: true)
+            }
+        }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -130,8 +156,12 @@ class AppsListViewController: UIViewController,
     // ============================================================
 
     private func addAppTapped() {
-        let jarType = UTType(filenameExtension: "jar") ?? .data
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [jarType])
+        // Accept .jar plus anything else (downloads are sometimes renamed to .zip
+        // or lose their extension); the content is checked on import.
+        var types: [UTType] = [.zip, .data]
+        if let jarType = UTType(filenameExtension: "jar") { types.insert(jarType, at: 0) }
+        // asCopy: the system hands us a local copy (also downloads iCloud files)
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         picker.delegate = self
         picker.allowsMultipleSelection = true
         present(picker, animated: true)
@@ -139,31 +169,133 @@ class AppsListViewController: UIViewController,
 
     func documentPicker(_ controller: UIDocumentPickerViewController,
                         didPickDocumentsAt urls: [URL]) {
+        importFiles(urls)
+    }
+
+    /// Import .jar files picked in the app or opened from Files / another app.
+    func importFiles(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        loadViewIfNeeded()
+        let dir = Self.gamesDirectory
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Self.importJARs(from: urls, into: dir)
+            DispatchQueue.main.async { [weak self] in
+                self?.handleImported(result)
+            }
+        }
+    }
+
+    nonisolated struct ImportResult: Sendable {
+        var imported: [String] = []
+        var rejected: [String] = []
+    }
+
+    nonisolated static func importJARs(from urls: [URL], into gamesDir: String) -> ImportResult {
         let fm = FileManager.default
-        var imported = 0
+        try? fm.createDirectory(atPath: gamesDir, withIntermediateDirectories: true)
+        var result = ImportResult()
 
         for url in urls {
-            guard url.pathExtension.lowercased() == "jar" else { continue }
             let accessing = url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
 
-            let destURL = URL(fileURLWithPath: Self.gamesDirectory)
-                .appendingPathComponent(url.lastPathComponent)
+            let original = url.lastPathComponent
+            let ext = url.pathExtension.lowercased()
+            if ext == "jad" {
+                result.rejected.append("\(original): file .jad chỉ là file mô tả, cần chọn file .jar")
+                continue
+            }
 
-            // If file with same name exists, remove it (overwrite)
-            try? fm.removeItem(at: destURL)
+            // Read through a file coordinator so iCloud / other providers deliver the file
+            var data: Data?
+            var coordError: NSError?
+            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { readURL in
+                data = try? Data(contentsOf: readURL)
+            }
+            guard let data, !data.isEmpty else {
+                let why = coordError?.localizedDescription ?? "file rỗng hoặc không có quyền đọc"
+                result.rejected.append("\(original): không đọc được file (\(why))")
+                print("[Import] FAILED to read \(original): \(why)")
+                continue
+            }
+            // A .jar is a ZIP archive: it must start with "PK"
+            guard data.count >= 4, data[data.startIndex] == 0x50, data[data.startIndex + 1] == 0x4B else {
+                result.rejected.append("\(original): không phải file .jar (sai định dạng)")
+                print("[Import] REJECTED \(original): not a ZIP/JAR (\(data.count) bytes)")
+                continue
+            }
 
+            var base = (ext == "jar" || ext == "zip") ? url.deletingPathExtension().lastPathComponent : original
+            if base.lowercased().hasSuffix(".jar") { base = String(base.dropLast(4)) } // "game.jar.zip"
+            if base.isEmpty { base = "game" }
+            let destName = base + ".jar"
+            let dest = URL(fileURLWithPath: gamesDir).appendingPathComponent(destName)
             do {
-                try fm.copyItem(at: url, to: destURL)
-                imported += 1
+                if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+                try data.write(to: dest, options: .atomic)
+                result.imported.append(destName)
+                print("[Import] \(original) -> games/\(destName) (\(data.count) bytes)")
             } catch {
-                print("[Swift] Failed to import \(url.lastPathComponent): \(error)")
+                result.rejected.append("\(original): \(error.localizedDescription)")
+                print("[Import] FAILED to save \(original): \(error)")
             }
         }
+        return result
+    }
 
-        if imported > 0 {
-            scanApps()
+    private func handleImported(_ result: ImportResult) {
+        scanApps()
+        var message = ""
+        if !result.imported.isEmpty {
+            message += "Đã thêm \(result.imported.count) game:\n" + result.imported.joined(separator: "\n")
         }
+        if !result.rejected.isEmpty {
+            if !message.isEmpty { message += "\n\n" }
+            message += "Không thêm được:\n" + result.rejected.joined(separator: "\n")
+        }
+        guard !message.isEmpty else { return }
+        let alert = UIAlertController(title: result.rejected.isEmpty ? "Đã thêm game" : "Kết quả thêm game",
+                                      message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        topPresenter().present(alert, animated: true)
+    }
+
+    private func topPresenter() -> UIViewController {
+        var top: UIViewController = navigationController ?? self
+        while let presented = top.presentedViewController { top = presented }
+        return top
+    }
+
+    // ============================================================
+    // MARK: - Error reporting / diagnostics log
+    // ============================================================
+
+    static func presentLaunchFailure(gameName: String, details: String, from presenter: UIViewController) {
+        var message = "\"\(gameName)\" dừng lại ngay khi khởi động."
+        message += "\n\nCó thể thử: bấm giữ icon game → Screen Resolution → chọn độ phân giải khác."
+        if !details.isEmpty { message += "\n\nNhật ký lỗi:\n" + details }
+        let alert = UIAlertController(title: "Không chạy được game", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Chia sẻ nhật ký", style: .default) { _ in
+            shareLogs(from: presenter, barButtonItem: nil)
+        })
+        alert.addAction(UIAlertAction(title: "Đóng", style: .cancel))
+        presenter.present(alert, animated: true)
+    }
+
+    static func shareLogs(from vc: UIViewController, barButtonItem: UIBarButtonItem?) {
+        let urls = DiagnosticsLog.shareableURLs
+        guard !urls.isEmpty else { return }
+        let share = UIActivityViewController(activityItems: urls, applicationActivities: nil)
+        if let pop = share.popoverPresentationController {   // required on iPad
+            if let barButtonItem {
+                pop.sourceItem = barButtonItem
+            } else {
+                pop.sourceView = vc.view
+                pop.sourceRect = CGRect(x: vc.view.bounds.midX, y: vc.view.bounds.midY, width: 1, height: 1)
+                pop.permittedArrowDirections = []
+            }
+        }
+        vc.present(share, animated: true)
     }
 
     // ============================================================
@@ -182,12 +314,24 @@ class AppsListViewController: UIViewController,
 
     private func scanApps() {
         let gamesDir = Self.gamesDirectory
+        let docsDir = Self.documentsDirectory
 
         DispatchQueue.global(qos: .userInitiated).async {
+            let fm = FileManager.default
             var jarPaths: [(name: String, path: String)] = []
 
-            if let files = try? FileManager.default.contentsOfDirectory(atPath: gamesDir) {
-                for file in files where file.hasSuffix(".jar") {
+            // .jar files copied straight into "On My iPad › JarBox" → move into games/
+            if let rootFiles = try? fm.contentsOfDirectory(atPath: docsDir) {
+                for file in rootFiles where file.lowercased().hasSuffix(".jar") {
+                    let dst = gamesDir + "/" + String(file.dropLast(4)) + ".jar"
+                    try? fm.removeItem(atPath: dst)
+                    try? fm.moveItem(atPath: docsDir + "/" + file, toPath: dst)
+                    print("[Swift] Moved \(file) from Documents into games/")
+                }
+            }
+
+            if let files = try? fm.contentsOfDirectory(atPath: gamesDir) {
+                for file in files where file.lowercased().hasSuffix(".jar") {
                     jarPaths.append((name: String(file.dropLast(4)), path: gamesDir + "/" + file))
                 }
             }

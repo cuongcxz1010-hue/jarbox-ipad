@@ -17,12 +17,14 @@ private class OrientationNavigationController: UINavigationController {
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     var window: UIWindow?
+    private weak var appsList: AppsListViewController?
 
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = (scene as? UIWindowScene) else { return }
 
         let vc = AppsListViewController()
+        appsList = vc
         let nav = OrientationNavigationController(rootViewController: vc)
         nav.navigationBar.prefersLargeTitles = false
 
@@ -37,6 +39,14 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window = UIWindow(windowScene: windowScene)
         window?.rootViewController = nav
         window?.makeKeyAndVisible()
+
+        // Launched by "Open in JarBox" / share sheet with a .jar file
+        vc.importFiles(connectionOptions.urlContexts.map { $0.url })
+    }
+
+    // A .jar opened from Files / Safari / Zalo... while the app is running
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        appsList?.importFiles(URLContexts.map { $0.url })
     }
 
     func sceneDidDisconnect(_ scene: UIScene) {
@@ -57,14 +67,13 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func sceneWillEnterForeground(_ scene: UIScene) {
-        // Called as the scene transitions from the background to the foreground.
-        // Use this method to undo the changes made on entering the background.
+        // Re-arm crash detection for a game that is still running
+        if let game = activeGameViewController { DiagnosticsLog.markGameRunning(game.appName) }
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {
-        // Called as the scene transitions from the foreground to the background.
-        // Use this method to save data, release shared resources, and store enough scene-specific state information
-        // to restore the scene back to its current state.
+        // iOS may terminate a backgrounded app; that is not a crash
+        if activeGameViewController != nil { DiagnosticsLog.markGameStopped() }
     }
 
 

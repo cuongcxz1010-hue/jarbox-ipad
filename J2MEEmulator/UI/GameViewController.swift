@@ -68,6 +68,12 @@ class GameViewController: UIViewController {
 
     private var alertTimeoutWork: DispatchWorkItem?
 
+    // Launch-failure detection
+    private var didShowContent = false
+    private var userRequestedExit = false
+    private var logOffset = 0
+    private var startedAt = Date()
+
     override var prefersStatusBarHidden: Bool { true }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
@@ -101,6 +107,7 @@ class GameViewController: UIViewController {
 
         // Fade out placeholder on first rendered frame
         emulatorView.onFirstFrame = { [weak self] in
+            self?.didShowContent = true
             guard let icon = self?.placeholderIconView else { return }
             UIView.animate(withDuration: 0.2) {
                 icon.alpha = 0
@@ -343,16 +350,38 @@ class GameViewController: UIViewController {
     // ============================================================
 
     private func startGame() {
+        logOffset = DiagnosticsLog.mark()
+        startedAt = Date()
+        DiagnosticsLog.markGameRunning(appName)
+        print("[Swift] Starting \(appName) (\(URL(fileURLWithPath: jarPath).lastPathComponent)), canvas \(canvasWidth)x\(canvasHeight)")
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.runMIDlet()
+            let initResult = self?.runMIDlet() ?? 0
             DispatchQueue.main.async {
-                self?.dismiss(animated: true)
+                DiagnosticsLog.markGameStopped()
+                self?.finishGame(initResult: initResult)
             }
         }
     }
 
-    private func runMIDlet() {
-        guard let resRoot = Bundle.main.resourcePath else { return }
+    /// Close the game screen; if the game stopped by itself before showing
+    /// anything, tell the user why instead of silently returning to the list.
+    private func finishGame(initResult: Int32) {
+        let ranFor = Date().timeIntervalSince(startedAt)
+        let failed = !userRequestedExit && (initResult != 0 || (!didShowContent && ranFor < 10))
+        let details = failed ? DiagnosticsLog.failureSummary(since: logOffset) : ""
+        let presenter = presentingViewController
+        let name = appName
+        print("[Swift] Game ended after \(Int(ranFor))s, init=\(initResult), shown=\(didShowContent), failed=\(failed)")
+        dismiss(animated: true) {
+            guard failed, let presenter else { return }
+            AppsListViewController.presentLaunchFailure(gameName: name, details: details, from: presenter)
+        }
+    }
+
+    /// Returns 0 when the JVM started (the MIDlet then ran until it exited).
+    private func runMIDlet() -> Int32 {
+        guard let resRoot = Bundle.main.resourcePath else { return -100 }
         let docs = NSSearchPathForDirectoriesInDomains(
             .documentDirectory, .userDomainMask, true).first ?? NSTemporaryDirectory()
 
@@ -370,15 +399,17 @@ class GameViewController: UIViewController {
                                          Int32(fpsLimit))
         guard initResult == 0 else {
             print("[Swift] ERROR: JVM init failed with code \(initResult)")
-            return
+            return initResult
         }
 
         let runResult = jvm_bridge_run_midlet(jarPath)
         print("[Swift] MIDlet run result: \(runResult)")
         jvm_bridge_destroy()
+        return 0
     }
 
     @objc private func backTapped() {
+        userRequestedExit = true
         backButton.isEnabled = false
         jvm_bridge_request_stop()
     }
@@ -397,6 +428,7 @@ class GameViewController: UIViewController {
     }
 
     func showFormView() {
+        didShowContent = true
         formView.buildFromNativeData()
         formView.isHidden = false
         emulatorView.isHidden = true
@@ -406,6 +438,7 @@ class GameViewController: UIViewController {
     }
 
     func showListView() {
+        didShowContent = true
         listView.buildFromNativeData()
         listView.isHidden = false
         emulatorView.isHidden = true
@@ -415,6 +448,7 @@ class GameViewController: UIViewController {
     }
 
     func showAlert() {
+        didShowContent = true
         let title = String(cString: j2me_ui_get_form_title())
         let text = String(cString: j2me_ui_get_alert_text())
 
