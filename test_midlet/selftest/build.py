@@ -107,8 +107,8 @@ def main(rt, api, output):
             f.write("public class OldCode { public static int compute() { return 0; } }\n")
         classes = os.path.join(tmp, "classes")
         os.makedirs(classes)
-        subprocess.check_call([javac, "--release", "8", "-nowarn", "-encoding", "UTF-8",
-                               "-cp", api + os.pathsep + rt, "-d", classes,
+        subprocess.check_call([javac, "-source", "8", "-target", "8", "-bootclasspath", api + os.pathsep + rt, "-nowarn", "-encoding", "UTF-8",
+                               "-d", classes,
                                os.path.join(HERE, "SelfTest.java"), stub])
         with open(os.path.join(classes, "OldCode.class"), "wb") as f:
             f.write(old_code_class())

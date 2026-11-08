@@ -127,10 +127,15 @@ public class AndroidRecordStoreManager implements RecordStoreManager {
 		RecordStoreImpl recordStoreImpl;
 		String headerName = getHeaderFileName(recordStoreName);
 		File headerFile = new File(getDataDir(), headerName);
-		try (DataInputStream dis = new DataInputStream(new FileInputStream(headerFile))) {
-			recordStoreImpl = new RecordStoreImpl(this);
-			recordStoreImpl.readHeader(dis);
-			recordStoreImpl.setOpen();
+		try {
+			DataInputStream dis = new DataInputStream(new FileInputStream(headerFile));
+			try {
+				recordStoreImpl = new RecordStoreImpl(this);
+				recordStoreImpl.readHeader(dis);
+				recordStoreImpl.setOpen();
+			} finally {
+				dis.close();
+			}
 		} catch (FileNotFoundException e) {
 			if (!createIfNecessary) {
 				throw new RecordStoreNotFoundException(recordStoreName);
@@ -164,8 +169,13 @@ public class AndroidRecordStoreManager implements RecordStoreManager {
 				for (String name : files) {
 					if (name.startsWith(prefix) && name.endsWith(RECORD_STORE_RECORD_SUFFIX)) {
 						File file = new File(dataDir, name);
-						try (DataInputStream dis = new DataInputStream(new FileInputStream(file))) {
-							recordStoreImpl.readRecord(dis);
+						try {
+							DataInputStream dis = new DataInputStream(new FileInputStream(file));
+							try {
+								recordStoreImpl.readRecord(dis);
+							} finally {
+								dis.close();
+							}
 						} catch (IOException e) {
 							System.out.println("loadFromDisk: broken record " + file + ": " + e.getMessage());
 							int pLen = prefix.length();
@@ -213,8 +223,13 @@ public class AndroidRecordStoreManager implements RecordStoreManager {
 	public void loadRecord(RecordStoreImpl recordStoreImpl, int recordId)
 			throws RecordStoreException {
 		String recordName = getRecordFileName(recordStoreImpl.getName(), recordId);
-		try (DataInputStream dis = new DataInputStream(new FileInputStream(new File(getDataDir(), recordName)))) {
-			recordStoreImpl.readRecord(dis);
+		try {
+			DataInputStream dis = new DataInputStream(new FileInputStream(new File(getDataDir(), recordName)));
+			try {
+				recordStoreImpl.readRecord(dis);
+			} finally {
+				dis.close();
+			}
 		} catch (FileNotFoundException e) {
 			throw new InvalidRecordIDException();
 		} catch (IOException e) {
@@ -231,8 +246,13 @@ public class AndroidRecordStoreManager implements RecordStoreManager {
 	private synchronized void deleteFromDisk(RecordStoreImpl recordStore, int recordId)
 			throws RecordStoreException {
 		String headerName = getHeaderFileName(recordStore.getName());
-		try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(new File(getDataDir(), headerName)))) {
-			recordStore.writeHeader(dos);
+		try {
+			DataOutputStream dos = new DataOutputStream(new FileOutputStream(new File(getDataDir(), headerName)));
+			try {
+				recordStore.writeHeader(dos);
+			} finally {
+				dos.close();
+			}
 		} catch (IOException e) {
 			System.out.println("RecordStore.saveToDisk: ERROR writing object to " + headerName + ": " + e.getMessage());
 			throw new RecordStoreException(e.getMessage());
@@ -247,8 +267,13 @@ public class AndroidRecordStoreManager implements RecordStoreManager {
 	private synchronized void saveToDisk(RecordStoreImpl recordStore, int recordId)
 			throws RecordStoreException {
 		String headerName = getHeaderFileName(recordStore.getName());
-		try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(new File(getDataDir(), headerName)))) {
-			recordStore.writeHeader(dos);
+		try {
+			DataOutputStream dos = new DataOutputStream(new FileOutputStream(new File(getDataDir(), headerName)));
+			try {
+				recordStore.writeHeader(dos);
+			} finally {
+				dos.close();
+			}
 		} catch (IOException e) {
 			System.out.println("RecordStore.saveToDisk: ERROR writing object to " + headerName + ": " + e.getMessage());
 			throw new RecordStoreException(e.getMessage());
@@ -256,8 +281,13 @@ public class AndroidRecordStoreManager implements RecordStoreManager {
 
 		if (recordId != -1) {
 			String recordName = getRecordFileName(recordStore.getName(), recordId);
-			try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(new File(getDataDir(), recordName)))) {
-				recordStore.writeRecord(dos, recordId);
+			try {
+				DataOutputStream dos = new DataOutputStream(new FileOutputStream(new File(getDataDir(), recordName)));
+				try {
+					recordStore.writeRecord(dos, recordId);
+				} finally {
+					dos.close();
+				}
 			} catch (IOException e) {
 				System.out.println("RecordStore.saveToDisk: ERROR writing object to " + recordName + ": " + e.getMessage());
 				throw new RecordStoreException(e.getMessage());

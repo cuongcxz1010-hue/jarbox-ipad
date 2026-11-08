@@ -13,8 +13,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 def main(rt, api, output):
     javac = shutil.which("javac") or "javac"
     with tempfile.TemporaryDirectory() as tmp:
-        subprocess.check_call([javac, "--release", "8", "-nowarn", "-encoding", "UTF-8",
-                               "-cp", api + os.pathsep + rt, "-d", tmp, os.path.join(HERE, "Demo.java")])
+        subprocess.check_call([javac, "-source", "8", "-target", "8", "-bootclasspath", api + os.pathsep + rt, "-nowarn", "-encoding", "UTF-8",
+                               "-d", tmp, os.path.join(HERE, "Demo.java")])
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("META-INF/MANIFEST.MF",
                        "Manifest-Version: 1.0\r\nMIDlet-Name: JarBox Demo\r\nMIDlet-Version: 1.0\r\n"

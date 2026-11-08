@@ -31,10 +31,12 @@ mkdir -p "$OUTPUT_DIR"
 
 find "$SCRIPT_DIR/src" -name "*.java" > "$SCRIPT_DIR/sources.txt"
 
-javac --release 8 \
+# Against the real runtime, not the JDK's class library: calling something the
+# runtime lacks must be a compile error here, not a NoSuchMethodError on the device.
+javac -source 8 -target 8 \
+    -bootclasspath "$MINIJVM_RT" \
     -encoding UTF-8 \
     -nowarn \
-    -cp "$MINIJVM_RT" \
     -d "$SCRIPT_DIR/classes" \
     @"$SCRIPT_DIR/sources.txt"
 

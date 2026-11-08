@@ -57,8 +57,11 @@ public class File {
 	}
 
 	public static int debugWrite(String fileName, String infoString) throws IOException {
-		try (FileWriter writer = new FileWriter(getFile(fileName), true)) {
-			writer.write(infoString);
+		java.io.FileOutputStream out = new java.io.FileOutputStream(getFile(fileName).getPath(), true);
+		try {
+			out.write(infoString.getBytes("UTF-8"));
+		} finally {
+			out.close();
 		}
 		return 1;
 	}
@@ -136,7 +139,7 @@ public class File {
 
 	
 	public static int spaceAvailable() throws IOException {
-		return (int) new java.io.File(System.getProperty("app.save.root")).getUsableSpace();
+		return 8 * 1024 * 1024;
 	}
 
 	public static void truncate(int fileDescriptor, int size) throws IOException {
