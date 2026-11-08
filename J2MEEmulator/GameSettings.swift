@@ -77,6 +77,72 @@ struct GameSettings {
         nonmutating set { store(newValue, "kbdScale_") }
     }
 
+    /// Stretch the game picture to fill the screen instead of keeping its proportions.
+    var stretchToFill: Bool {
+        get { bool("scaleFill_", false) }
+        nonmutating set { store(newValue, "scaleFill_") }
+    }
+
+    /// Smooth (bilinear) scaling instead of sharp pixels.
+    var smoothPicture: Bool {
+        get { bool("smooth_", false) }
+        nonmutating set { store(newValue, "smooth_") }
+    }
+
+    /// Light vibration when an on-screen key is pressed.
+    var keyHaptics: Bool {
+        get { bool("haptic_", true) }
+        nonmutating set { store(newValue, "haptic_") }
+    }
+
+    /// Disable auto-lock while this game is open (for long sessions).
+    var keepScreenOn: Bool {
+        get { bool("keepOn_", true) }
+        nonmutating set { store(newValue, "keepOn_") }
+    }
+
+    /// Auto-press: key code and interval in seconds.
+    var autoPressCode: Int32 {
+        get { Int32(int("autoKey_", Int(J2MEKey.fire))) }
+        nonmutating set { store(Int(newValue), "autoKey_") }
+    }
+
+    var autoPressInterval: Int {
+        get { int("autoEvery_", 10) }
+        nonmutating set { store(newValue, "autoEvery_") }
+    }
+
+    static let autoPressKeys: [(label: String, code: Int32)] = [
+        ("OK (giữa D-pad)", J2MEKey.fire), ("Phím mềm trái", J2MEKey.softLeft), ("Phím mềm phải", J2MEKey.softRight),
+        ("Phím 5", 53), ("Phím 0", 48), ("Phím 1", 49), ("Phím 3", 51), ("Phím 7", 55), ("Phím 9", 57),
+        ("Phím *", 42), ("Phím #", 35), ("Lên", J2MEKey.up), ("Xuống", J2MEKey.down),
+        ("Trái (D-pad)", J2MEKey.left), ("Phải (D-pad)", J2MEKey.right),
+    ]
+
+    static let autoPressIntervals: [Int] = [1, 2, 5, 10, 30, 60, 120, 300]
+
+    /// Where the user dragged an on-screen key group, as a fraction of the
+    /// safe area (0…1), separately for portrait and landscape. nil = default.
+    func keyPosition(_ name: String, portrait: Bool) -> CGPoint? {
+        guard let s = defaults.string(forKey: keyPositionKey(name, portrait)) else { return nil }
+        let parts = s.split(separator: ",").compactMap { Double($0) }
+        guard parts.count == 2 else { return nil }
+        return CGPoint(x: parts[0], y: parts[1])
+    }
+
+    func setKeyPosition(_ point: CGPoint?, _ name: String, portrait: Bool) {
+        let key = keyPositionKey(name, portrait)
+        if let p = point {
+            defaults.set(String(format: "%.4f,%.4f", Double(p.x), Double(p.y)), forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private func keyPositionKey(_ name: String, _ portrait: Bool) -> String {
+        "kbdPos_\(portrait ? "p" : "l")_\(name)_" + id
+    }
+
     static let resolutionOptions: [(label: String, w: Int, h: Int)] = [
         // Landscape (for games that adapt to the screen size)
         ("320×240 (ngang)", 320, 240),

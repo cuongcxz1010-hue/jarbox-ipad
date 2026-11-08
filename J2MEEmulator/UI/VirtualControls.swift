@@ -17,7 +17,13 @@ enum J2MEKey {
     static let fire: Int32 = -5
     static let softLeft: Int32 = -6
     static let softRight: Int32 = -7
+    static let clear: Int32 = -8      // "C" / Back on Nokia phones
+    static let call: Int32 = -10      // green Call / Send key
+    static let end: Int32 = -11       // red End key
 }
+
+/// Light vibration on key press (Menu → Rung khi bấm phím).
+var virtualKeyHapticsEnabled = true
 
 /// Held keys repeat like a phone keypad (KEY_REPEATED after 0.4 s, every 80 ms).
 private final class KeyRepeater {
@@ -107,7 +113,7 @@ final class VirtualKeyButton: UIControl {
     }
 
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        keyHaptic.impactOccurred(intensity: 0.6)
+        if virtualKeyHapticsEnabled { keyHaptic.impactOccurred(intensity: 0.6) }
         for code in codes { j2me_input_post_key(Int32(J2ME_INPUT_KEY_PRESSED), code) }
         backgroundColor = KeyStyle.fillPressed
         let held = codes
@@ -270,7 +276,7 @@ final class DPadView: UIView {
         for code in newlyPressed {
             j2me_input_post_key(Int32(J2ME_INPUT_KEY_PRESSED), code)
         }
-        if !newlyPressed.isEmpty { keyHaptic.impactOccurred(intensity: 0.5) }
+        if !newlyPressed.isEmpty && virtualKeyHapticsEnabled { keyHaptic.impactOccurred(intensity: 0.5) }
         activeCodes = codes
 
         highlightLayers[0].isHidden = !codes.contains(J2MEKey.up)

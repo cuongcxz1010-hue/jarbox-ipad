@@ -14,6 +14,25 @@ class EmulatorView: UIView {
     var canvasWidth: Int = 240
     var canvasHeight: Int = 320
 
+    /// Stretch the picture to the view's bounds (otherwise keep proportions).
+    var stretchToFill = false {
+        didSet { layer.contentsGravity = stretchToFill ? .resize : .resizeAspect }
+    }
+
+    /// Bilinear filtering instead of sharp nearest-neighbour pixels.
+    var smoothScaling = false {
+        didSet {
+            layer.magnificationFilter = smoothScaling ? .linear : .nearest
+            layer.minificationFilter = smoothScaling ? .linear : .nearest
+        }
+    }
+
+    /// The picture currently on screen (for screenshots).
+    var currentImage: CGImage? {
+        guard let contents = layer.contents else { return nil }
+        return (contents as! CGImage)
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         setup()
@@ -97,13 +116,13 @@ class EmulatorView: UIView {
         let cw = CGFloat(canvasWidth)
         let ch = CGFloat(canvasHeight)
 
-        // Calculate aspect-fit layout (same as CALayer's .resizeAspect)
+        // Same mapping as the layer: stretched (.resize) or aspect-fit (.resizeAspect)
         let scaleX = viewW / cw
         let scaleY = viewH / ch
         let scale = min(scaleX, scaleY)
 
-        let displayW = cw * scale
-        let displayH = ch * scale
+        let displayW = stretchToFill ? viewW : cw * scale
+        let displayH = stretchToFill ? viewH : ch * scale
         let offsetX = (viewW - displayW) / 2
         let offsetY = (viewH - displayH) / 2
 

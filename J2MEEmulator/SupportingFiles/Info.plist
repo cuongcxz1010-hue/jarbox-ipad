@@ -28,6 +28,12 @@
 	</dict>
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Lưu ảnh chụp màn hình game vào thư viện ảnh.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Game Java có thể cần kết nối tới máy chủ trong cùng mạng WiFi (ví dụ server chạy trên máy tính của bạn).</string>
 	<key>CFBundleDocumentTypes</key>

@@ -69,11 +69,14 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneWillEnterForeground(_ scene: UIScene) {
         // Re-arm crash detection for a game that is still running
         if let game = activeGameViewController { DiagnosticsLog.markGameRunning(game.appName) }
+        SessionKeeper.shared.appWillEnterForeground()
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {
         // iOS may terminate a backgrounded app; that is not a crash
         if activeGameViewController != nil { DiagnosticsLog.markGameStopped() }
+        // Ask for background time, and remember the game in case iOS ends the app
+        SessionKeeper.shared.appDidEnterBackground(gameJarPath: activeGameViewController?.jarPath)
     }
 
 

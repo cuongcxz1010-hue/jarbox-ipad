@@ -40,6 +40,7 @@ public class MIDletRunner {
         try {
             // 1. Read manifest
             Map<String, String> manifestAttrs = readManifest(jarPath);
+            mergeJad(jarPath, manifestAttrs);
 
             String midletName = manifestAttrs.get("MIDlet-Name");
             String midletVersion = manifestAttrs.get("MIDlet-Version");
@@ -131,6 +132,35 @@ public class MIDletRunner {
         }
 
         return result;
+    }
+
+    /**
+     * Attributes from a .jad descriptor saved next to the JAR (same file name)
+     * take precedence over the manifest, as on a phone. MIDlet-Jar-* keys only
+     * describe the download and are skipped.
+     */
+    private static void mergeJad(String jarPath, Map<String, String> attrs) {
+        if (!jarPath.toLowerCase().endsWith(".jar")) return;
+        java.io.File jad = new java.io.File(jarPath.substring(0, jarPath.length() - 4) + ".jad");
+        if (!jad.exists()) return;
+        try {
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(new java.io.FileInputStream(jad), "UTF-8"));
+            int merged = 0;
+            String line;
+            while ((line = reader.readLine()) != null) {
+                int colon = line.indexOf(':');
+                if (colon <= 0) continue;
+                String key = line.substring(0, colon).trim();
+                if (key.startsWith("MIDlet-Jar-")) continue;
+                attrs.put(key, line.substring(colon + 1).trim());
+                merged++;
+            }
+            reader.close();
+            System.out.println("[MIDletRunner] JAD attributes merged: " + merged);
+        } catch (Exception e) {
+            System.out.println("[MIDletRunner] JAD read failed: " + e);
+        }
     }
 
     /**

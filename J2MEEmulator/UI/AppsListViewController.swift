@@ -5,6 +5,7 @@
 //  Springboard-style home screen with app grid.
 //
 
+import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
@@ -121,8 +122,31 @@ class AppsListViewController: UIViewController,
                 })
                 alert.addAction(UIAlertAction(title: "Bỏ qua", style: .cancel))
                 present(alert, animated: true)
+            } else {
+                // iOS ended the app while a game was in the background → offer to reopen it
+                pendingResumeName = SessionKeeper.takeResumeJarName()
+                offerResumeIfReady()
             }
         }
+    }
+
+    private var pendingResumeName: String?
+
+    /// Called once the game list is known (the scan runs in the background).
+    private func offerResumeIfReady() {
+        guard let name = pendingResumeName, presentedViewController == nil,
+              let index = apps.firstIndex(where: { URL(fileURLWithPath: $0.path).lastPathComponent == name }) else { return }
+        pendingResumeName = nil
+        let app = apps[index]
+        let alert = UIAlertController(
+            title: "Tiếp tục chơi?",
+            message: "iOS đã đóng JarBox khi \"\(app.name)\" đang chạy nền.\n\nMở lại game? Game sẽ khởi động lại và dùng dữ liệu game đã tự lưu.",
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Không", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Mở lại", style: .default) { [weak self] _ in
+            self?.launch(app, at: IndexPath(item: index, section: 0))
+        })
+        present(alert, animated: true)
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -194,30 +218,26 @@ class AppsListViewController: UIViewController,
         let fm = FileManager.default
         try? fm.createDirectory(atPath: gamesDir, withIntermediateDirectories: true)
         var result = ImportResult()
+        var importedJars: [String: String] = [:]          // picked file name (lowercased) → saved name
+        var jads: [(name: String, data: Data)] = []
 
         for url in urls {
-            let accessing = url.startAccessingSecurityScopedResource()
-            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-
             let original = url.lastPathComponent
             let ext = url.pathExtension.lowercased()
-            if ext == "jad" {
-                result.rejected.append("\(original): file .jad chỉ là file mô tả, cần chọn file .jar")
-                continue
-            }
-
-            // Read through a file coordinator so iCloud / other providers deliver the file
-            var data: Data?
-            var coordError: NSError?
-            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { readURL in
-                data = try? Data(contentsOf: readURL)
-            }
-            guard let data, !data.isEmpty else {
-                let why = coordError?.localizedDescription ?? "file rỗng hoặc không có quyền đọc"
+            let (fileData, readError) = readPickedFile(url)
+            guard let data = fileData, !data.isEmpty else {
+                let why = readError ?? "file rỗng hoặc không có quyền đọc"
                 result.rejected.append("\(original): không đọc được file (\(why))")
                 print("[Import] FAILED to read \(original): \(why)")
                 continue
             }
+
+            // JAD descriptors are paired with their JAR after all JARs are saved
+            if ext == "jad" {
+                jads.append((original, data))
+                continue
+            }
+
             // A .jar is a ZIP archive: it must start with "PK"
             guard data.count >= 4, data[data.startIndex] == 0x50, data[data.startIndex + 1] == 0x4B else {
                 result.rejected.append("\(original): không phải file .jar (sai định dạng)")
@@ -234,13 +254,62 @@ class AppsListViewController: UIViewController,
                 if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
                 try data.write(to: dest, options: .atomic)
                 result.imported.append(destName)
+                importedJars[original.lowercased()] = destName
+                importedJars[destName.lowercased()] = destName
                 print("[Import] \(original) -> games/\(destName) (\(data.count) bytes)")
             } catch {
                 result.rejected.append("\(original): \(error.localizedDescription)")
                 print("[Import] FAILED to save \(original): \(error)")
             }
         }
+
+        for jad in jads {
+            let text = String(decoding: jad.data, as: UTF8.self)
+            var jarName: String?
+            for line in text.split(whereSeparator: \.isNewline) {
+                let parts = line.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2,
+                      parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "midlet-jar-url" else { continue }
+                let value = parts[1].trimmingCharacters(in: .whitespaces)
+                jarName = value.split(separator: "/").last.map(String.init) ?? value
+            }
+            // The JAR named in the JAD, the only JAR picked with it, or one already in the library
+            var target: String?
+            if let name = jarName?.lowercased(), let saved = importedJars[name] {
+                target = saved
+            } else if Set(importedJars.values).count == 1 {
+                target = importedJars.values.first
+            } else if let name = jarName, fm.fileExists(atPath: gamesDir + "/" + name) {
+                target = name
+            }
+            guard let jar = target else {
+                result.rejected.append("\(jad.name): cần chọn kèm file .jar của game (\(jarName ?? "không rõ tên"))")
+                continue
+            }
+            let jadDest = URL(fileURLWithPath: gamesDir)
+                .appendingPathComponent(String(jar.dropLast(4)) + ".jad")
+            do {
+                try jad.data.write(to: jadDest, options: .atomic)
+                result.imported.append("\(jad.name) (mô tả cho \(jar))")
+                print("[Import] \(jad.name) -> games/\(jadDest.lastPathComponent)")
+            } catch {
+                result.rejected.append("\(jad.name): \(error.localizedDescription)")
+            }
+        }
         return result
+    }
+
+    /// Read a picked / opened file through a file coordinator so iCloud and
+    /// other providers deliver it first.
+    nonisolated private static func readPickedFile(_ url: URL) -> (Data?, String?) {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        var data: Data?
+        var coordError: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { readURL in
+            data = try? Data(contentsOf: readURL)
+        }
+        return (data, coordError?.localizedDescription)
     }
 
     private func handleImported(_ result: ImportResult) {
@@ -356,6 +425,7 @@ class AppsListViewController: UIViewController,
                 self.apps = scannedApps
                 self.springboardCollectionView.reloadData()
                 self.emptyStateLabel.isHidden = !scannedApps.isEmpty
+                self.offerResumeIfReady()
                 print("[Swift] Found \(scannedApps.count) MIDlet JARs in \(gamesDir)")
             }
         }
@@ -510,8 +580,11 @@ class AppsListViewController: UIViewController,
 
             let settingsMenu = UIMenu(options: .displayInline,
                                       children: [resMenu, orientationMenu, fpsMenu, toggle3D])
+            let allSettings = UIAction(title: "Cài đặt đầy đủ…", image: UIImage(systemName: "gearshape")) { _ in
+                self?.openSettings(for: app)
+            }
             let actions = UIMenu(options: .displayInline, children: [clearData, delete])
-            return UIMenu(children: [play, settingsMenu, actions])
+            return UIMenu(children: [play, allSettings, settingsMenu, actions])
         })
     }
 
@@ -560,6 +633,19 @@ class AppsListViewController: UIViewController,
     func collectionView(_ collectionView: UICollectionView,
                         didSelectItemAt indexPath: IndexPath) {
         launch(apps[indexPath.item], at: indexPath)
+    }
+
+    /// Full settings screen (SwiftUI) for one game.
+    private func openSettings(for app: AppInfo) {
+        let settings = GameSettings(jarPath: app.path)
+        weak var host: UIViewController?
+        let settingsView = GameSettingsView(gameName: app.name, settings: settings,
+                                            profiles: ControlProfileStore(settings: settings),
+                                            onClose: { host?.dismiss(animated: true) })
+        let controller = UIHostingController(rootView: settingsView)
+        controller.modalPresentationStyle = .formSheet
+        host = controller
+        present(controller, animated: true)
     }
 
     private func launch(_ app: AppInfo, at indexPath: IndexPath) {

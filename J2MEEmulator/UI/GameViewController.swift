@@ -3,23 +3,16 @@
 //  J2MEEmulator
 //
 //  Runs one J2ME MIDlet in the style of J2ME Loader (Android):
-//  the game screen scaled to fit, translucent on-screen keys in the bottom
-//  corners (D-pad + OK, soft keys, keypad 1-9 * 0 #) and one Menu button
-//  holding every option (typing, show/hide keys, rotation, key size and
-//  opacity, resolution, exit).
-//
-//  Landscape                                   Portrait
-//  ┌──────────────────────────────────────┐    ┌──────────────────────┐
-//  │              ┌──────────┐    [Menu]  │    │   ┌──────────────┐   │
-//  │              │          │            │    │   │  game screen │   │
-//  │ [Trái]       │  game    │     [Phải] │    │   └──────────────┘   │
-//  │  ╭─────╮     │  screen  │   [1][2][3]│    │ [Trái] [Menu] [Phải] │
-//  │  │ ◀OK▶│     │          │   [4][5][6]│    │  ╭─────╮   [1][2][3] │
-//  │  ╰─────╯     │          │   [7][8][9]│    │  │ ◀OK▶│   [4][5][6] │
-//  │              └──────────┘   [*][0][#]│    │  ╰─────╯   [7][8][9] │
-//  └──────────────────────────────────────┘    └──────────────────────┘
+//  • the game picture scaled to fit (or stretched) — UIKit for speed;
+//  • every phone key on screen (D-pad + OK, soft keys, Call, C/Back, End,
+//    0-9 * #), each one movable / resizable / fadeable / hideable and saved
+//    in per-game control profiles (portrait and landscape separately);
+//  • one Menu button for everything: typing, keys, display, idle tools
+//    (idle mode, auto-press, keep screen on, background), screenshot,
+//    settings (SwiftUI) and help.
 //
 
+import SwiftUI
 import UIKit
 
 class GameViewController: UIViewController {
@@ -32,6 +25,7 @@ class GameViewController: UIViewController {
     let render3dScale: Int
     let fpsLimit: Int
     private let settings: GameSettings
+    private let profiles: ControlProfileStore
 
     private let emulatorView = EmulatorView()
     private let glowContainer = UIView()
@@ -41,18 +35,23 @@ class GameViewController: UIViewController {
     private lazy var listView = J2MEListView()
     private(set) var placeholderIconView: UIImageView?
 
-    // On-screen keys
-    private let dpad = DPadView()
-    private let keypad = KeypadView()
-    private let softLeftKey = VirtualKeyButton(title: "Trái", subtitle: "phím mềm", codes: [J2MEKey.softLeft])
-    private let softRightKey = VirtualKeyButton(title: "Phải", subtitle: "phím mềm", codes: [J2MEKey.softRight])
+    // On-screen controls, keyed by ControlSpec.id
+    private var controlViews: [String: UIView] = [:]
     private let menuButton = UIButton(type: .system)
+    private let autoPressBadge = UIButton(type: .system)
     private let keyInputView = KeyInputView()
     private var textBoxDelegate: J2METextFieldDelegate?
+    private var editor: KeyLayoutEditorView?
 
     private var showingNativeScreen = false          // a Form or List is shown instead of the canvas
+    private var systemKeyboardVisible = false        // iOS keyboard on screen → hide the phone keys
     private var canvasCommands: [(label: String, id: Int32)] = []
     private var alertTimeoutWork: DispatchWorkItem?
+
+    // Idle tools
+    private var idleOverlay: UIView?
+    private var savedBrightness: CGFloat?
+    private var autoPressTimer: Timer?
 
     // Launch-failure detection / restart
     private var didShowContent = false
@@ -62,6 +61,10 @@ class GameViewController: UIViewController {
     private var startedAt = Date()
 
     private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+    private var isPortraitNow: Bool {
+        let safe = view.safeAreaLayoutGuide.layoutFrame
+        return safe.height > safe.width
+    }
 
     init(jarPath: String, appName: String, appIcon: UIImage,
          canvasWidth: Int = 240, canvasHeight: Int = 320,
@@ -73,7 +76,9 @@ class GameViewController: UIViewController {
         self.canvasHeight = canvasHeight
         self.render3dScale = render3dScale
         self.fpsLimit = fpsLimit
-        self.settings = GameSettings(jarPath: jarPath)
+        let gameSettings = GameSettings(jarPath: jarPath)
+        self.settings = gameSettings
+        self.profiles = ControlProfileStore(settings: gameSettings)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -91,6 +96,7 @@ class GameViewController: UIViewController {
     deinit {
         setGlobalEmulatorView(nil)
         alertTimeoutWork?.cancel()
+        autoPressTimer?.invalidate()
     }
 
     // MARK: - Appearance & orientation
@@ -135,16 +141,29 @@ class GameViewController: UIViewController {
         glowContainer.addSubview(glowContentView)
         glowBlur.isUserInteractionEnabled = false
 
-        for v: UIView in [glowContainer, glowBlur, emulatorView, keyInputView,
-                          dpad, keypad, softLeftKey, softRightKey, formView, listView, menuButton] {
-            view.addSubview(v)
+        for v: UIView in [glowContainer, glowBlur, emulatorView, keyInputView] { view.addSubview(v) }
+
+        // Phone keys
+        for spec in ControlCatalog.all {
+            let control: UIView
+            switch spec.kind {
+            case .dpad:
+                control = DPadView()
+            case let .key(code, title, subtitle):
+                control = VirtualKeyButton(title: title, subtitle: subtitle, codes: [code])
+            }
+            controlViews[spec.id] = control
+            view.addSubview(control)
         }
+
+        for v: UIView in [formView, listView, autoPressBadge, menuButton] { view.addSubview(v) }
         formView.isHidden = true
         listView.isHidden = true
 
         setupMenuButton()
+        setupAutoPressBadge()
         setupTyping()
-        applyKeyOpacity()
+        applySettings()
 
         // Placeholder icon — visible until the first game frame
         let iconIV = UIImageView(image: appIcon)
@@ -155,6 +174,7 @@ class GameViewController: UIViewController {
 
         emulatorView.onFirstFrame = { [weak self] in
             self?.didShowContent = true
+            self?.showHelpOnFirstRun()
             guard let icon = self?.placeholderIconView else { return }
             UIView.animate(withDuration: 0.2) {
                 icon.alpha = 0
@@ -169,6 +189,13 @@ class GameViewController: UIViewController {
             self?.glowContentView.layer.contents = cgImage
         }
 
+        // System events
+        let nc = NotificationCenter.default
+        nc.addObserver(self, selector: #selector(keyboardWillShow), name: UIResponder.keyboardWillShowNotification, object: nil)
+        nc.addObserver(self, selector: #selector(keyboardWillHide), name: UIResponder.keyboardWillHideNotification, object: nil)
+        nc.addObserver(self, selector: #selector(appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
+        nc.addObserver(self, selector: #selector(appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+
         // Native callbacks
         setGlobalEmulatorView(emulatorView)
         j2me_render_set_flush_callback(flushCallback)
@@ -182,6 +209,18 @@ class GameViewController: UIViewController {
         startGame()
     }
 
+    /// Apply the saved display / control settings to the running screen.
+    private func applySettings() {
+        emulatorView.stretchToFill = settings.stretchToFill
+        emulatorView.smoothScaling = settings.smoothPicture
+        virtualKeyHapticsEnabled = settings.keyHaptics
+        if SessionKeeper.shared.gameRunning {
+            UIApplication.shared.isIdleTimerDisabled = settings.keepScreenOn
+        }
+        setNeedsUpdateOfSupportedInterfaceOrientations()
+        view.setNeedsLayout()
+    }
+
     // MARK: - Layout
 
     override func viewDidLayoutSubviews() {
@@ -189,31 +228,38 @@ class GameViewController: UIViewController {
         layoutGame()
     }
 
+    private var keyUnit: CGFloat { CGFloat(profiles.active.scale) * (isPad ? 1.0 : 0.7) }
+    private var keyMargin: CGFloat { isPad ? 20 : 10 }
+
+    private func defaultControlFrames() -> [String: CGRect] {
+        ControlCatalog.defaultFrames(in: view.safeAreaLayoutGuide.layoutFrame, unit: keyUnit, margin: keyMargin)
+    }
+
     private func layoutGame() {
         let safe = view.safeAreaLayoutGuide.layoutFrame
         guard safe.width > 0, safe.height > 0 else { return }
         let portrait = safe.height > safe.width
-        let keysShown = settings.keyboardVisible && !showingNativeScreen
+        let editing = editor != nil
+        let keysShown = (settings.keyboardVisible || editing) && !showingNativeScreen && !systemKeyboardVisible
+        let unit = keyUnit
+        let margin = keyMargin
 
-        // Key sizes in points: iPad base, smaller on iPhone, times the user's size choice
-        let unit = CGFloat(settings.keyScale) * (isPad ? 1.0 : 0.7)
-        let dpadSize = 230 * unit
-        let keypadW = 210 * unit, keypadH = 236 * unit
-        let softW = 108 * unit, softH = 48 * unit
-        let rowGap = 12 * unit
-        let margin: CGFloat = isPad ? 20 : 10
-        let clusterH = max(dpadSize, keypadH) + rowGap + softH
-
-        // Game screen: scaled to fit — full height in landscape, above the keys in portrait
+        // Game screen — full height in landscape, above the keys in portrait
         var area = safe.insetBy(dx: 4, dy: 4)
         if portrait && keysShown {
-            area.size.height = max(safe.height * 0.45, safe.height - clusterH - 2 * margin - 8)
+            area.size.height = max(safe.height * 0.45,
+                                   safe.height - ControlCatalog.defaultClusterHeight(unit: unit) - 2 * margin - 8)
         }
-        let cw = CGFloat(canvasWidth), ch = CGFloat(canvasHeight)
-        let scale = min(area.width / cw, area.height / ch)
-        let size = CGSize(width: floor(cw * scale), height: floor(ch * scale))
-        let screen = CGRect(x: round(area.midX - size.width / 2), y: round(area.midY - size.height / 2),
+        let screen: CGRect
+        if settings.stretchToFill {
+            screen = area.integral
+        } else {
+            let cw = CGFloat(canvasWidth), ch = CGFloat(canvasHeight)
+            let scale = min(area.width / cw, area.height / ch)
+            let size = CGSize(width: floor(cw * scale), height: floor(ch * scale))
+            screen = CGRect(x: round(area.midX - size.width / 2), y: round(area.midY - size.height / 2),
                             width: size.width, height: size.height)
+        }
         emulatorView.frame = screen
         glowContainer.frame = screen
         glowContentView.frame = glowContainer.bounds
@@ -223,29 +269,48 @@ class GameViewController: UIViewController {
         listView.frame = view.bounds
         keyInputView.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
 
-        // Keys in the bottom corners, soft keys on one row above them
-        let bottom = safe.maxY - margin
-        dpad.frame = CGRect(x: safe.minX + margin, y: bottom - dpadSize, width: dpadSize, height: dpadSize)
-        keypad.frame = CGRect(x: safe.maxX - margin - keypadW, y: bottom - keypadH, width: keypadW, height: keypadH)
-        let softY = min(dpad.frame.minY, keypad.frame.minY) - rowGap - softH
-        softLeftKey.frame = CGRect(x: dpad.frame.minX, y: softY, width: softW, height: softH)
-        softRightKey.frame = CGRect(x: keypad.frame.maxX - softW, y: softY, width: softW, height: softH)
-        for key: UIView in [dpad, keypad, softLeftKey, softRightKey] { key.isHidden = !keysShown }
+        // Phone keys: default frame, or where the user put them in this profile
+        let defaults = ControlCatalog.defaultFrames(in: safe, unit: unit, margin: margin)
+        let profileOpacity = profiles.active.opacity
+        for spec in ControlCatalog.all {
+            guard let control = controlViews[spec.id], let base = defaults[spec.id] else { continue }
+            let placement = profiles.placement(spec.id, portrait: portrait)
+            control.frame = frame(for: base, placement: placement, safe: safe)
+            let hidden = placement?.hidden ?? false
+            control.isHidden = !keysShown || (hidden && !editing)
+            let alpha = max(0.15, min(1.0, profileOpacity * (placement?.opacity ?? 1)))
+            control.alpha = CGFloat(alpha) * (hidden && editing ? 0.35 : 1)
+        }
 
         // Menu: centred on the soft-key row in portrait, top-right otherwise
         let menuSize = CGSize(width: 110, height: 44)
-        if portrait && keysShown {
-            menuButton.frame = CGRect(x: round(safe.midX - menuSize.width / 2), y: softY + (softH - menuSize.height) / 2,
+        if portrait && keysShown, let softRow = defaults["softL"] {
+            menuButton.frame = CGRect(x: round(safe.midX - menuSize.width / 2), y: softRow.midY - menuSize.height / 2,
                                       width: menuSize.width, height: menuSize.height)
         } else {
             menuButton.frame = CGRect(x: safe.maxX - menuSize.width - 10, y: safe.minY + 10,
                                       width: menuSize.width, height: menuSize.height)
         }
+        menuButton.isHidden = editing
+
+        let badgeSize = autoPressBadge.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        autoPressBadge.frame = CGRect(x: safe.minX + 10, y: safe.minY + 10,
+                                      width: min(badgeSize.width, safe.width - menuSize.width - 40), height: 40)
+
+        if let editor {
+            editor.frame = view.bounds
+            editor.refreshOutlines()
+        }
+        idleOverlay?.frame = view.bounds
     }
 
-    private func applyKeyOpacity() {
-        let alpha = CGFloat(max(0.3, min(1.0, settings.keyOpacity)))
-        for key: UIView in [dpad, keypad, softLeftKey, softRightKey] { key.alpha = alpha }
+    private func frame(for base: CGRect, placement: KeyPlacement?, safe: CGRect) -> CGRect {
+        guard let p = placement else { return base }
+        let size = CGSize(width: base.width * CGFloat(p.scale), height: base.height * CGFloat(p.scale))
+        var c = CGPoint(x: safe.minX + CGFloat(p.x) * safe.width, y: safe.minY + CGFloat(p.y) * safe.height)
+        c.x = min(max(c.x, size.width / 2), view.bounds.width - size.width / 2)
+        c.y = min(max(c.y, size.height / 2), view.bounds.height - size.height / 2)
+        return CGRect(x: c.x - size.width / 2, y: c.y - size.height / 2, width: size.width, height: size.height)
     }
 
     // MARK: - Menu
@@ -279,7 +344,6 @@ class GameViewController: UIViewController {
     private func menuItems() -> [UIMenuElement] {
         var items: [UIMenuElement] = []
 
-        // Typing & keys
         let typing = UIAction(title: keyInputView.isFirstResponder ? "Ẩn bàn phím gõ chữ" : "Gõ chữ (bàn phím iPad)",
                               image: UIImage(systemName: "keyboard")) { [weak self] _ in
             self?.toggleTyping()
@@ -292,52 +356,18 @@ class GameViewController: UIViewController {
             self.view.setNeedsLayout()
         }
         items.append(UIMenu(options: .displayInline, children: [typing, toggleKeys]))
+        items.append(UIMenu(options: .displayInline, children: [controlsMenu(), displayMenu(), idleMenu()]))
 
-        // Rotation
-        let orientation = settings.orientation
-        let rotate = UIMenu(title: "Xoay màn hình", image: UIImage(systemName: "rotate.right"), children: [
-            (GameOrientation.auto, "Tự động theo iPad"),
-            (GameOrientation.landscape, "Luôn nằm ngang"),
-            (GameOrientation.portrait, "Luôn dựng dọc"),
-        ].map { value, title in
-            UIAction(title: title, state: value == orientation ? .on : .off) { [weak self] _ in
-                self?.setOrientation(value)
-            }
-        })
-
-        // Key size
-        let scale = settings.keyScale
-        let keySize = UIMenu(title: "Cỡ phím", image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"), children: [
-            (0.8, "Nhỏ"), (1.0, "Vừa"), (1.2, "Lớn"), (1.4, "Rất lớn"),
-        ].map { value, title in
-            UIAction(title: title, state: abs(value - scale) < 0.01 ? .on : .off) { [weak self] _ in
-                self?.settings.keyScale = value
-                self?.view.setNeedsLayout()
-            }
-        })
-
-        // Key opacity
-        let opacity = settings.keyOpacity
-        let keyOpacity = UIMenu(title: "Độ đậm của phím", image: UIImage(systemName: "circle.lefthalf.filled"), children: [
-            (0.35, "Mờ"), (0.55, "Vừa"), (0.75, "Rõ"), (1.0, "Đậm nhất"),
-        ].map { value, title in
-            UIAction(title: title, state: abs(value - opacity) < 0.01 ? .on : .off) { [weak self] _ in
-                self?.settings.keyOpacity = value
-                self?.applyKeyOpacity()
-            }
-        })
-
-        // Resolution (restarts the game)
-        let res = settings.resolution
-        let resolution = UIMenu(title: "Độ phân giải game",
-                                subtitle: "\(res.w)×\(res.h) · đổi sẽ khởi động lại game",
-                                image: UIImage(systemName: "aspectratio"),
-                                children: GameSettings.resolutionOptions.map { opt in
-            UIAction(title: opt.label, state: (opt.w == res.w && opt.h == res.h) ? .on : .off) { [weak self] _ in
-                self?.changeResolution(w: opt.w, h: opt.h)
-            }
-        })
-        items.append(UIMenu(options: .displayInline, children: [rotate, keySize, keyOpacity, resolution]))
+        let screenshot = UIAction(title: "Chụp màn hình game", image: UIImage(systemName: "camera")) { [weak self] _ in
+            self?.shareScreenshot()
+        }
+        let openSettings = UIAction(title: "Cài đặt game…", image: UIImage(systemName: "gearshape")) { [weak self] _ in
+            self?.openSettings()
+        }
+        let help = UIAction(title: "Hướng dẫn", image: UIImage(systemName: "questionmark.circle")) { [weak self] _ in
+            self?.showHelp()
+        }
+        items.append(UIMenu(options: .displayInline, children: [screenshot, openSettings, help]))
 
         // Commands the game attached to its screen (MIDP Canvas commands)
         if !canvasCommands.isEmpty {
@@ -356,9 +386,181 @@ class GameViewController: UIViewController {
         return items
     }
 
+    private func controlsMenu() -> UIMenu {
+        let edit = UIAction(title: "Kéo thả, đổi cỡ từng phím…", image: UIImage(systemName: "hand.draw")) { [weak self] _ in
+            self?.startLayoutEditor()
+        }
+
+        var profileItems: [UIMenuElement] = profiles.profiles.indices.map { i in
+            UIAction(title: profiles.profiles[i].name, state: i == profiles.activeIndex ? .on : .off) { [weak self] _ in
+                self?.profiles.select(i)
+                self?.view.setNeedsLayout()
+            }
+        }
+        profileItems.append(UIAction(title: "Tạo hồ sơ mới…", image: UIImage(systemName: "plus")) { [weak self] _ in
+            self?.promptProfileName(title: "Hồ sơ phím mới", initial: "Hồ sơ \((self?.profiles.profiles.count ?? 0) + 1)") { name in
+                self?.profiles.addCopy(named: name)
+                self?.view.setNeedsLayout()
+            }
+        })
+        profileItems.append(UIAction(title: "Đổi tên hồ sơ…", image: UIImage(systemName: "pencil")) { [weak self] _ in
+            guard let self else { return }
+            self.promptProfileName(title: "Đổi tên hồ sơ", initial: self.profiles.active.name) { name in
+                self.profiles.renameActive(name)
+            }
+        })
+        if profiles.profiles.count > 1 {
+            profileItems.append(UIAction(title: "Xóa hồ sơ \"\(profiles.active.name)\"", image: UIImage(systemName: "trash"),
+                                         attributes: .destructive) { [weak self] _ in
+                self?.profiles.removeActive()
+                self?.view.setNeedsLayout()
+            })
+        }
+        let profileMenu = UIMenu(title: "Hồ sơ phím", subtitle: profiles.active.name,
+                                 image: UIImage(systemName: "person.crop.rectangle.stack"), children: profileItems)
+
+        let scale = profiles.active.scale
+        let keySize = UIMenu(title: "Cỡ phím", image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"), children: [
+            (0.8, "Nhỏ"), (1.0, "Vừa"), (1.2, "Lớn"), (1.4, "Rất lớn"),
+        ].map { value, title in
+            UIAction(title: title, state: abs(value - scale) < 0.01 ? .on : .off) { [weak self] _ in
+                self?.profiles.active.scale = value
+                self?.view.setNeedsLayout()
+            }
+        })
+
+        let opacity = profiles.active.opacity
+        let keyOpacity = UIMenu(title: "Độ đậm của phím", image: UIImage(systemName: "circle.lefthalf.filled"), children: [
+            (0.35, "Mờ"), (0.55, "Vừa"), (0.75, "Rõ"), (1.0, "Đậm nhất"),
+        ].map { value, title in
+            UIAction(title: title, state: abs(value - opacity) < 0.01 ? .on : .off) { [weak self] _ in
+                self?.profiles.active.opacity = value
+                self?.view.setNeedsLayout()
+            }
+        })
+
+        let haptics = UIAction(title: "Rung khi bấm phím", image: UIImage(systemName: "iphone.radiowaves.left.and.right"),
+                               state: settings.keyHaptics ? .on : .off) { [weak self] _ in
+            guard let self else { return }
+            self.settings.keyHaptics = !self.settings.keyHaptics
+            self.applySettings()
+        }
+
+        return UIMenu(title: "Phím điều khiển", image: UIImage(systemName: "gamecontroller"),
+                      children: [edit, profileMenu, keySize, keyOpacity, haptics])
+    }
+
+    private func displayMenu() -> UIMenu {
+        let orientation = settings.orientation
+        let rotate = UIMenu(title: "Xoay màn hình", image: UIImage(systemName: "rotate.right"), children: [
+            (GameOrientation.auto, "Tự động theo máy"),
+            (GameOrientation.landscape, "Luôn nằm ngang"),
+            (GameOrientation.portrait, "Luôn dựng dọc"),
+        ].map { value, title in
+            UIAction(title: title, state: value == orientation ? .on : .off) { [weak self] _ in
+                self?.setOrientation(value)
+            }
+        })
+
+        let stretch = settings.stretchToFill
+        let scaling = UIMenu(title: "Kiểu hiển thị", image: UIImage(systemName: "rectangle.expand.vertical"), children: [
+            UIAction(title: "Vừa khít (giữ tỉ lệ)", state: stretch ? .off : .on) { [weak self] _ in
+                self?.settings.stretchToFill = false
+                self?.applySettings()
+            },
+            UIAction(title: "Kéo giãn đầy màn hình", state: stretch ? .on : .off) { [weak self] _ in
+                self?.settings.stretchToFill = true
+                self?.applySettings()
+            },
+        ])
+
+        let smooth = UIAction(title: "Làm mịn hình", image: UIImage(systemName: "wand.and.stars"),
+                              state: settings.smoothPicture ? .on : .off) { [weak self] _ in
+            guard let self else { return }
+            self.settings.smoothPicture = !self.settings.smoothPicture
+            self.applySettings()
+        }
+
+        let res = settings.resolution
+        let resolution = UIMenu(title: "Độ phân giải game",
+                                subtitle: "\(res.w)×\(res.h) · đổi sẽ khởi động lại game",
+                                image: UIImage(systemName: "aspectratio"),
+                                children: GameSettings.resolutionOptions.map { opt in
+            UIAction(title: opt.label, state: (opt.w == res.w && opt.h == res.h) ? .on : .off) { [weak self] _ in
+                self?.changeResolution(w: opt.w, h: opt.h)
+            }
+        })
+
+        return UIMenu(title: "Hiển thị", image: UIImage(systemName: "display"),
+                      children: [rotate, scaling, smooth, resolution])
+    }
+
+    private func idleMenu() -> UIMenu {
+        let idle = UIAction(title: "Chế độ treo (màn tối, khóa chạm)", image: UIImage(systemName: "moon.zzz")) { [weak self] _ in
+            self?.enterIdleMode()
+        }
+
+        let running = autoPressTimer != nil
+        let autoToggle = UIAction(title: running ? "Dừng tự động bấm" : "Bắt đầu tự động bấm",
+                                  subtitle: autoPressDescription(),
+                                  image: UIImage(systemName: running ? "stop.circle" : "play.circle")) { [weak self] _ in
+            self?.toggleAutoPress()
+        }
+        let currentKey = settings.autoPressCode
+        let keyMenu = UIMenu(title: "Phím tự bấm", image: UIImage(systemName: "hand.tap"),
+                             children: GameSettings.autoPressKeys.map { key in
+            UIAction(title: key.label, state: key.code == currentKey ? .on : .off) { [weak self] _ in
+                self?.settings.autoPressCode = key.code
+                self?.restartAutoPressIfRunning()
+            }
+        })
+        let currentInterval = settings.autoPressInterval
+        let intervalMenu = UIMenu(title: "Chu kỳ tự bấm", image: UIImage(systemName: "timer"),
+                                  children: GameSettings.autoPressIntervals.map { s in
+            UIAction(title: s < 60 ? "\(s) giây" : "\(s / 60) phút", state: s == currentInterval ? .on : .off) { [weak self] _ in
+                self?.settings.autoPressInterval = s
+                self?.restartAutoPressIfRunning()
+            }
+        })
+
+        let keepOn = UIAction(title: "Giữ màn hình luôn sáng", image: UIImage(systemName: "sun.max"),
+                              state: settings.keepScreenOn ? .on : .off) { [weak self] _ in
+            guard let self else { return }
+            self.settings.keepScreenOn = !self.settings.keepScreenOn
+            self.applySettings()
+        }
+        let background = UIAction(title: "Giữ chạy nền (thử nghiệm)",
+                                  subtitle: "Không đảm bảo — iOS có thể vẫn dừng app",
+                                  image: UIImage(systemName: "moon.circle"),
+                                  state: SessionKeeper.backgroundAudioEnabled ? .on : .off) { [weak self] _ in
+            let enable = !SessionKeeper.backgroundAudioEnabled
+            SessionKeeper.shared.setBackgroundAudio(enable)
+            if enable { self?.explainBackgroundLimits() }
+        }
+
+        return UIMenu(title: "Treo game", image: UIImage(systemName: "hourglass"),
+                      children: [idle, autoToggle, keyMenu, intervalMenu, keepOn, background])
+    }
+
+    private func promptProfileName(title: String, initial: String, completion: @escaping (String) -> Void) {
+        let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
+        alert.addTextField { $0.text = initial; $0.clearButtonMode = .whileEditing }
+        alert.addAction(UIAlertAction(title: "Hủy", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Lưu", style: .default) { [weak alert] _ in
+            let name = (alert?.textFields?.first?.text ?? "").trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty { completion(name) }
+        })
+        present(alert, animated: true)
+    }
+
     private func setOrientation(_ value: GameOrientation) {
         settings.orientation = value
+        requestOrientationUpdate()
+    }
+
+    private func requestOrientationUpdate() {
         setNeedsUpdateOfSupportedInterfaceOrientations()
+        let value = settings.orientation
         guard value != .auto, let scene = view.window?.windowScene else { return }
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: value == .portrait ? .portrait : .landscape)) { error in
             print("[Swift] Rotation request failed: \(error.localizedDescription)")
@@ -366,10 +568,15 @@ class GameViewController: UIViewController {
     }
 
     private func changeResolution(w: Int, h: Int) {
-        guard w != canvasWidth || h != canvasHeight else { return }
         settings.resolution = (w, h)
+        askRestartForResolution()
+    }
+
+    private func askRestartForResolution() {
+        let res = settings.resolution
+        guard res.w != canvasWidth || res.h != canvasHeight else { return }
         let alert = UIAlertController(title: "Đổi độ phân giải",
-                                      message: "Game sẽ khởi động lại với độ phân giải \(w)×\(h).",
+                                      message: "Game sẽ khởi động lại với độ phân giải \(res.w)×\(res.h).",
                                       preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Khởi động lại", style: .default) { [weak self] _ in
             self?.restartRequested = true
@@ -385,6 +592,270 @@ class GameViewController: UIViewController {
         jvm_bridge_request_stop()
     }
 
+    // MARK: - Settings screen (SwiftUI)
+
+    private func openSettings() {
+        let settingsView = GameSettingsView(
+            gameName: appName, settings: settings, profiles: profiles, inGame: true,
+            onChange: { [weak self] in self?.applySettings() },
+            onEditLayout: { [weak self] in
+                self?.dismiss(animated: true) { self?.startLayoutEditor() }
+            },
+            onClose: { [weak self] in
+                self?.dismiss(animated: true) { self?.settingsClosed() }
+            })
+        let host = UIHostingController(rootView: settingsView)
+        host.modalPresentationStyle = .formSheet
+        present(host, animated: true)
+    }
+
+    private func settingsClosed() {
+        applySettings()
+        requestOrientationUpdate()
+        askRestartForResolution()
+    }
+
+    // MARK: - Layout editor
+
+    private func startLayoutEditor() {
+        guard editor == nil else { return }
+        keyInputView.resignFirstResponder()
+        let ed = KeyLayoutEditorView(frame: view.bounds)
+        ed.placementFor = { [weak self] id in self?.currentPlacement(id) }
+        ed.onMove = { [weak self] id, center, finished in self?.editorMove(id, center: center, finished: finished) }
+        ed.onScale = { [weak self] id, scale, finished in self?.editorScale(id, scale: scale, finished: finished) }
+        ed.onOpacity = { [weak self] id, value in self?.editorOpacity(id, value) }
+        ed.onToggleHidden = { [weak self] id in self?.editorToggleHidden(id) }
+        ed.onReset = { [weak self] in
+            guard let self else { return }
+            self.profiles.resetPlacements(portrait: self.isPortraitNow)
+            self.view.setNeedsLayout()
+        }
+        ed.onDone = { [weak self] in self?.stopLayoutEditor() }
+        view.addSubview(ed)
+        editor = ed
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        ed.items = ControlCatalog.all.compactMap { spec -> KeyLayoutEditorView.Item? in
+            guard let control = controlViews[spec.id] else { return nil }
+            return KeyLayoutEditorView.Item(id: spec.id, name: spec.name, view: control)
+        }
+    }
+
+    private func stopLayoutEditor() {
+        editor?.removeFromSuperview()
+        editor = nil
+        view.setNeedsLayout()
+    }
+
+    /// Saved placement, or one describing where the key is now.
+    private func currentPlacement(_ id: String) -> KeyPlacement {
+        if let p = profiles.placement(id, portrait: isPortraitNow) { return p }
+        let safe = view.safeAreaLayoutGuide.layoutFrame
+        let c = controlViews[id]?.center ?? CGPoint(x: safe.midX, y: safe.midY)
+        return KeyPlacement(x: Double((c.x - safe.minX) / safe.width), y: Double((c.y - safe.minY) / safe.height))
+    }
+
+    private func editorMove(_ id: String, center: CGPoint, finished: Bool) {
+        guard let control = controlViews[id] else { return }
+        let w = control.bounds.width, h = control.bounds.height
+        let c = CGPoint(x: min(max(center.x, w / 2), view.bounds.width - w / 2),
+                        y: min(max(center.y, h / 2), view.bounds.height - h / 2))
+        control.center = c
+        guard finished else { return }
+        let safe = view.safeAreaLayoutGuide.layoutFrame
+        var p = currentPlacement(id)
+        p.x = Double((c.x - safe.minX) / safe.width)
+        p.y = Double((c.y - safe.minY) / safe.height)
+        profiles.setPlacement(p, id, portrait: isPortraitNow)
+    }
+
+    private func editorScale(_ id: String, scale: Double, finished: Bool) {
+        guard let control = controlViews[id], let base = defaultControlFrames()[id] else { return }
+        let c = control.center
+        let size = CGSize(width: base.width * CGFloat(scale), height: base.height * CGFloat(scale))
+        control.frame = CGRect(x: c.x - size.width / 2, y: c.y - size.height / 2, width: size.width, height: size.height)
+        guard finished else { return }
+        var p = currentPlacement(id)
+        p.scale = scale
+        profiles.setPlacement(p, id, portrait: isPortraitNow)
+        view.setNeedsLayout()
+    }
+
+    private func editorOpacity(_ id: String, _ value: Double) {
+        var p = currentPlacement(id)
+        p.opacity = value
+        profiles.setPlacement(p, id, portrait: isPortraitNow)
+        view.setNeedsLayout()
+    }
+
+    private func editorToggleHidden(_ id: String) {
+        var p = currentPlacement(id)
+        p.hidden.toggle()
+        profiles.setPlacement(p, id, portrait: isPortraitNow)
+        view.setNeedsLayout()
+    }
+
+    // MARK: - Idle tools: idle mode, auto-press
+
+    private func enterIdleMode() {
+        guard idleOverlay == nil else { return }
+        keyInputView.resignFirstResponder()
+        let overlay = UIView(frame: view.bounds)
+        overlay.backgroundColor = UIColor(white: 0, alpha: 0.92)
+        let label = UILabel()
+        label.text = "Đang treo game\n\nGame vẫn chạy; màn hình được làm tối và khóa chạm để tiết kiệm pin.\n\nChạm 2 lần để quay lại."
+        label.textColor = UIColor(white: 1, alpha: 0.75)
+        label.font = .systemFont(ofSize: 17, weight: .medium)
+        label.numberOfLines = 0
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        overlay.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+            label.widthAnchor.constraint(lessThanOrEqualTo: overlay.widthAnchor, multiplier: 0.8),
+        ])
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(exitIdleMode))
+        doubleTap.numberOfTapsRequired = 2
+        overlay.addGestureRecognizer(doubleTap)
+        view.addSubview(overlay)
+        idleOverlay = overlay
+        UIApplication.shared.isIdleTimerDisabled = true
+        dimScreen(true)
+    }
+
+    @objc private func exitIdleMode() {
+        idleOverlay?.removeFromSuperview()
+        idleOverlay = nil
+        dimScreen(false)
+        UIApplication.shared.isIdleTimerDisabled = settings.keepScreenOn && SessionKeeper.shared.gameRunning
+    }
+
+    private func dimScreen(_ dim: Bool) {
+        guard let screen = view.window?.windowScene?.screen else { return }
+        if dim {
+            if savedBrightness == nil { savedBrightness = screen.brightness }
+            screen.brightness = 0.01
+        } else if let saved = savedBrightness {
+            screen.brightness = saved
+            savedBrightness = nil
+        }
+    }
+
+    private func setupAutoPressBadge() {
+        var config = UIButton.Configuration.filled()
+        config.cornerStyle = .capsule
+        config.baseBackgroundColor = UIColor.systemOrange.withAlphaComponent(0.85)
+        config.baseForegroundColor = .white
+        config.image = UIImage(systemName: "timer")
+        config.imagePadding = 6
+        config.titleLineBreakMode = .byTruncatingTail
+        autoPressBadge.configuration = config
+        autoPressBadge.addTarget(self, action: #selector(stopAutoPressTapped), for: .touchUpInside)
+        autoPressBadge.isHidden = true
+    }
+
+    private func autoPressDescription() -> String {
+        let code = settings.autoPressCode
+        let key = GameSettings.autoPressKeys.first { $0.code == code }?.label ?? "Phím \(code)"
+        let s = settings.autoPressInterval
+        return "\(key) · mỗi \(s < 60 ? "\(s) giây" : "\(s / 60) phút")"
+    }
+
+    private func toggleAutoPress() {
+        if autoPressTimer == nil { startAutoPress() } else { stopAutoPress() }
+    }
+
+    private func startAutoPress() {
+        stopAutoPress()
+        let code = settings.autoPressCode
+        let interval = TimeInterval(max(1, settings.autoPressInterval))
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            j2me_input_post_key(Int32(J2ME_INPUT_KEY_PRESSED), code)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                j2me_input_post_key(Int32(J2ME_INPUT_KEY_RELEASED), code)
+            }
+        }
+        timer.tolerance = 0.1
+        autoPressTimer = timer
+        autoPressBadge.configuration?.title = "Tự bấm: \(autoPressDescription()) · chạm để dừng"
+        autoPressBadge.isHidden = false
+        view.setNeedsLayout()
+        print("[Swift] Auto-press started: \(autoPressDescription())")
+    }
+
+    private func stopAutoPress() {
+        autoPressTimer?.invalidate()
+        autoPressTimer = nil
+        autoPressBadge.isHidden = true
+    }
+
+    @objc private func stopAutoPressTapped() {
+        stopAutoPress()
+    }
+
+    private func restartAutoPressIfRunning() {
+        if autoPressTimer != nil { startAutoPress() }
+    }
+
+    private func explainBackgroundLimits() {
+        let alert = UIAlertController(
+            title: "Giữ chạy nền (thử nghiệm)",
+            message: """
+            Khi bạn thoát ra màn hình chính hoặc khóa máy, app sẽ cố chạy tiếp bằng chế độ âm thanh nền.
+
+            Đây không phải tính năng chắc chắn: iOS vẫn có thể dừng app khi thiếu bộ nhớ, khi có cuộc gọi hoặc sau thời gian dài; tốn pin hơn; App Store không cho phép cách này (bản cài qua Sideloadly thì dùng được).
+
+            Cách treo ổn định nhất: để game mở, bật "Giữ màn hình luôn sáng" và dùng Chế độ treo.
+            """,
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Đã hiểu", style: .default))
+        present(alert, animated: true)
+    }
+
+    // MARK: - Screenshot & help
+
+    private func shareScreenshot() {
+        guard let cg = emulatorView.currentImage else { return }
+        let factor = max(1, Int(960 / CGFloat(max(cg.width, cg.height))))
+        let size = CGSize(width: cg.width * factor, height: cg.height * factor)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            ctx.cgContext.interpolationQuality = .none
+            UIImage(cgImage: cg).draw(in: CGRect(origin: .zero, size: size))
+        }
+        let share = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+        share.popoverPresentationController?.sourceItem = menuButton
+        present(share, animated: true)
+    }
+
+    private static let helpText = """
+    • Vòng tròn bên trái (D-pad): di chuyển, chọn mục, đổi tab. Nút OK ở giữa = chọn / đồng ý. Chạm vào khe giữa 2 mũi tên để đi chéo.
+    • "Trái" / "Phải" (phím mềm): bấm theo chữ game hiện ở góc dưới màn hình game (Menu, OK, Quay lại…).
+    • Phím số 0–9, *, # như điện thoại; C = xóa/quay lại; Gọi; Tắt.
+    • Có thể chạm thẳng vào màn hình game.
+    • Ô tài khoản / mật khẩu / chat: chạm vào ô, bàn phím iPad tự hiện.
+    • Menu: gõ chữ, ẩn/hiện phím, kéo thả và đổi cỡ từng phím, hồ sơ phím, xoay màn hình, treo game, cài đặt.
+    """
+
+    private func showHelp() {
+        let alert = UIAlertController(title: "Cách điều khiển", message: Self.helpText, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Đã hiểu", style: .default))
+        present(alert, animated: true)
+    }
+
+    private func showHelpOnFirstRun() {
+        let key = "shownControlsHelp_v3"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self, self.presentedViewController == nil else { return }
+            self.showHelp()
+        }
+    }
+
     // MARK: - Typing (iOS keyboard → key presses)
 
     private func setupTyping() {
@@ -393,8 +864,8 @@ class GameViewController: UIViewController {
             j2me_input_post_key(Int32(J2ME_INPUT_KEY_RELEASED), code)
         }
         keyInputView.onDelete = {
-            j2me_input_post_key(Int32(J2ME_INPUT_KEY_PRESSED), -8)
-            j2me_input_post_key(Int32(J2ME_INPUT_KEY_RELEASED), -8)
+            j2me_input_post_key(Int32(J2ME_INPUT_KEY_PRESSED), J2MEKey.clear)
+            j2me_input_post_key(Int32(J2ME_INPUT_KEY_RELEASED), J2MEKey.clear)
         }
         keyInputView.onReturn = { [weak self] in
             j2me_input_post_key(Int32(J2ME_INPUT_KEY_PRESSED), J2MEKey.fire)
@@ -411,6 +882,24 @@ class GameViewController: UIViewController {
         }
     }
 
+    @objc private func keyboardWillShow() {
+        systemKeyboardVisible = true
+        view.setNeedsLayout()
+    }
+
+    @objc private func keyboardWillHide() {
+        systemKeyboardVisible = false
+        view.setNeedsLayout()
+    }
+
+    @objc private func appWillResignActive() {
+        if idleOverlay != nil { dimScreen(false) }   // never leave the device dimmed
+    }
+
+    @objc private func appDidBecomeActive() {
+        if idleOverlay != nil { dimScreen(true) }
+    }
+
     // MARK: - Hardware keyboard (Magic Keyboard / Bluetooth)
 
     override var canBecomeFirstResponder: Bool { true }
@@ -425,8 +914,11 @@ class GameViewController: UIViewController {
         case .keyboardRightArrow: return J2MEKey.right
         case .keyboardF1:         return J2MEKey.softLeft
         case .keyboardF2:         return J2MEKey.softRight
+        case .keyboardF3:         return J2MEKey.call
+        case .keyboardF4:         return J2MEKey.end
+        case .keyboardEscape:     return J2MEKey.clear
         case .keyboardReturnOrEnter, .keypadEnter: return typing ? nil : J2MEKey.fire
-        case .keyboardDeleteOrBackspace:           return typing ? nil : -8
+        case .keyboardDeleteOrBackspace:           return typing ? nil : J2MEKey.clear
         default:
             guard !typing, key.modifierFlags.isDisjoint(with: [.command, .control]) else { return nil }
             let scalars = key.characters.unicodeScalars
@@ -470,6 +962,8 @@ class GameViewController: UIViewController {
         logOffset = DiagnosticsLog.mark()
         startedAt = Date()
         DiagnosticsLog.markGameRunning(appName)
+        SessionKeeper.shared.gameStarted()
+        UIApplication.shared.isIdleTimerDisabled = settings.keepScreenOn
         print("[Swift] Starting \(appName) (\(URL(fileURLWithPath: jarPath).lastPathComponent)), canvas \(canvasWidth)x\(canvasHeight)")
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -484,6 +978,11 @@ class GameViewController: UIViewController {
     /// Close the game screen. Restart it when the resolution was changed; if the
     /// game stopped by itself before showing anything, tell the user why.
     private func finishGame(initResult: Int32) {
+        stopAutoPress()
+        exitIdleMode()
+        SessionKeeper.shared.gameStopped()
+        UIApplication.shared.isIdleTimerDisabled = false
+
         let ranFor = Date().timeIntervalSince(startedAt)
         let presenter = presentingViewController
 
