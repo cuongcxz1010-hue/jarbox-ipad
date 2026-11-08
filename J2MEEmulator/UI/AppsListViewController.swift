@@ -451,134 +451,74 @@ class AppsListViewController: UIViewController,
                         point: CGPoint) -> UIContextMenuConfiguration? {
         guard let indexPath = indexPaths.first else { return nil }
         let app = apps[indexPath.item]
+        let settings = GameSettings(jarPath: app.path)
         return UIContextMenuConfiguration(actionProvider: { [weak self] _ in
-            let ssEnabled = Self.is3DSupersampling(for: app)
-            let toggle3D = UIAction(title: ssEnabled ? "Disable 3D Enhancement" : "Enable 3D Enhancement",
-                                    subtitle: ssEnabled ? "Lower quality, but closer to original" : "Smoother 3D, but not original-accurate",
-                                    image: UIImage(systemName: "cube"),
-                                    state: ssEnabled ? .on : .off) { _ in
-                Self.set3DSupersampling(!ssEnabled, for: app)
+            let play = UIAction(title: "Chơi", image: UIImage(systemName: "play.fill")) { _ in
+                self?.launch(app, at: indexPath)
             }
-            let clearData = UIAction(title: "Clear Game Data",
-                                     image: UIImage(systemName: "eraser")) { _ in
-                self?.confirmClearGameData(for: app)
-            }
-            let delete = UIAction(title: "Delete", image: UIImage(systemName: "trash"),
-                                  attributes: .destructive) { _ in
-                self?.confirmDeleteApp(at: indexPath)
-            }
-            let currentRes = Self.resolution(for: app)
-            let resActions = Self.resolutionOptions.map { opt in
+
+            let currentRes = settings.resolution
+            let resMenu = UIMenu(title: "Độ phân giải màn hình",
+                                 subtitle: "\(currentRes.w)×\(currentRes.h)",
+                                 image: UIImage(systemName: "aspectratio"),
+                                 children: GameSettings.resolutionOptions.map { opt in
                 UIAction(title: opt.label,
                          state: (opt.w == currentRes.w && opt.h == currentRes.h) ? .on : .off) { _ in
-                    Self.setResolution(w: opt.w, h: opt.h, for: app)
+                    settings.resolution = (opt.w, opt.h)
                 }
-            }
-            let resMenu = UIMenu(title: "Screen Resolution",
-                                  image: UIImage(systemName: "aspectratio"),
-                                  children: resActions)
+            })
 
-            let currentFps = Self.fpsLimit(for: app)
-            let fpsActions = Self.fpsLimitOptions.map { opt in
-                UIAction(title: opt.label,
-                         state: opt.value == currentFps ? .on : .off) { _ in
-                    Self.setFpsLimit(opt.value, for: app)
-                }
-            }
-            let fpsMenu = UIMenu(title: "FPS Limit",
-                                  subtitle: "High FPS may break some games",
-                                  image: UIImage(systemName: "gauge.with.needle"),
-                                  children: fpsActions)
-
-            let currentOrientation = GameOrientation.saved(forJar: app.path)
-            let orientationActions: [UIAction] = [
+            let currentOrientation = settings.orientation
+            let orientationMenu = UIMenu(title: "Hướng màn hình",
+                                         image: UIImage(systemName: "rotate.right"),
+                                         children: [
                 (GameOrientation.auto, "Tự xoay theo iPad"),
                 (GameOrientation.landscape, "Luôn nằm ngang"),
                 (GameOrientation.portrait, "Luôn dựng dọc"),
             ].map { value, title in
                 UIAction(title: title, state: value == currentOrientation ? .on : .off) { _ in
-                    GameOrientation.save(value, forJar: app.path)
+                    settings.orientation = value
                 }
-            }
-            let orientationMenu = UIMenu(title: "Hướng màn hình",
-                                         image: UIImage(systemName: "rotate.right"),
-                                         children: orientationActions)
+            })
 
-            let settings = UIMenu(options: .displayInline,
-                                  children: [toggle3D, resMenu, orientationMenu, fpsMenu])
+            let currentFps = settings.fpsLimit
+            let fpsMenu = UIMenu(title: "Giới hạn FPS",
+                                 subtitle: "FPS cao có thể làm lỗi một số game",
+                                 image: UIImage(systemName: "gauge.with.needle"),
+                                 children: GameSettings.fpsOptions.map { opt in
+                UIAction(title: opt.label, state: opt.value == currentFps ? .on : .off) { _ in
+                    settings.fpsLimit = opt.value
+                }
+            })
+
+            let ssEnabled = settings.supersampling3D
+            let toggle3D = UIAction(title: "Làm mịn đồ họa 3D",
+                                    subtitle: ssEnabled ? "Đang bật: mịn hơn nhưng khác bản gốc" : "Đang tắt: giống bản gốc",
+                                    image: UIImage(systemName: "cube"),
+                                    state: ssEnabled ? .on : .off) { _ in
+                settings.supersampling3D = !ssEnabled
+            }
+
+            let clearData = UIAction(title: "Xóa dữ liệu lưu game",
+                                     image: UIImage(systemName: "eraser")) { _ in
+                self?.confirmClearGameData(for: app)
+            }
+            let delete = UIAction(title: "Xóa game", image: UIImage(systemName: "trash"),
+                                  attributes: .destructive) { _ in
+                self?.confirmDeleteApp(at: indexPath)
+            }
+
+            let settingsMenu = UIMenu(options: .displayInline,
+                                      children: [resMenu, orientationMenu, fpsMenu, toggle3D])
             let actions = UIMenu(options: .displayInline, children: [clearData, delete])
-            return UIMenu(children: [settings, actions])
+            return UIMenu(children: [play, settingsMenu, actions])
         })
     }
 
     // MARK: - Per-game settings
 
     private static func gameId(for app: AppInfo) -> String {
-        let jarName = URL(fileURLWithPath: app.path).deletingPathExtension().lastPathComponent
-        return jarName.replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
-    }
-
-    static func is3DSupersampling(for app: AppInfo) -> Bool {
-        UserDefaults.standard.object(forKey: "ss3d_\(gameId(for: app))") as? Bool ?? true
-    }
-
-    static func set3DSupersampling(_ enabled: Bool, for app: AppInfo) {
-        UserDefaults.standard.set(enabled, forKey: "ss3d_\(gameId(for: app))")
-    }
-
-    private static let resolutionOptions: [(label: String, w: Int, h: Int)] = [
-        // Landscape (good on a sideways iPad, for games that adapt to the screen size)
-        ("320×240 (ngang)", 320, 240),
-        ("400×240 (ngang)", 400, 240),
-        ("480×320 (ngang)", 480, 320),
-        ("640×360 (ngang)", 640, 360),
-        ("800×480 (ngang)", 800, 480),
-        // Common J2ME resolutions (portrait / square)
-        ("101×80",   101,  80),
-        ("128×128",  128, 128),
-        ("128×160",  128, 160),
-        ("132×176",  132, 176),
-        ("160×128",  160, 128),
-        ("176×208",  176, 208),
-        ("176×220",  176, 220),
-        ("208×208",  208, 208),
-        ("220×220",  220, 220),
-        ("240×266",  240, 266),
-        ("240×320",  240, 320),
-        ("240×400",  240, 400),
-        ("320×480",  320, 480),
-        ("352×416",  352, 416),
-        ("360×640",  360, 640),
-        ("480×800",  480, 800),
-    ]
-
-    static func resolution(for app: AppInfo) -> (w: Int, h: Int) {
-        let gid = gameId(for: app)
-        let w = UserDefaults.standard.object(forKey: "resW_\(gid)") as? Int ?? 240
-        let h = UserDefaults.standard.object(forKey: "resH_\(gid)") as? Int ?? 320
-        return (w, h)
-    }
-
-    private static func setResolution(w: Int, h: Int, for app: AppInfo) {
-        let gid = gameId(for: app)
-        UserDefaults.standard.set(w, forKey: "resW_\(gid)")
-        UserDefaults.standard.set(h, forKey: "resH_\(gid)")
-    }
-
-    private static let fpsLimitOptions: [(label: String, value: Int)] = [
-        ("Unlimited", 0),
-        ("15 FPS",   15),
-        ("20 FPS",   20),
-        ("30 FPS",   30),
-        ("60 FPS",   60),
-    ]
-
-    static func fpsLimit(for app: AppInfo) -> Int {
-        UserDefaults.standard.object(forKey: "fpsLimit_\(gameId(for: app))") as? Int ?? 60
-    }
-
-    private static func setFpsLimit(_ fps: Int, for app: AppInfo) {
-        UserDefaults.standard.set(fps, forKey: "fpsLimit_\(gameId(for: app))")
+        GameSettings(jarPath: app.path).id
     }
 
     private static var documentsDirectory: String {
@@ -586,11 +526,11 @@ class AppsListViewController: UIViewController,
     }
 
     private func confirmClearGameData(for app: AppInfo) {
-        let alert = UIAlertController(title: "Clear Game Data",
-                                       message: "Delete all save data for \(app.name)?",
+        let alert = UIAlertController(title: "Xóa dữ liệu lưu game",
+                                       message: "Xóa toàn bộ dữ liệu lưu của \"\(app.name)\"?",
                                        preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Clear", style: .destructive) { _ in
+        alert.addAction(UIAlertAction(title: "Hủy", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Xóa", style: .destructive) { _ in
             let gid = Self.gameId(for: app)
             try? FileManager.default.removeItem(atPath: Self.documentsDirectory + "/Games Data/" + gid)
         })
@@ -599,11 +539,11 @@ class AppsListViewController: UIViewController,
 
     private func confirmDeleteApp(at indexPath: IndexPath) {
         let app = apps[indexPath.item]
-        let alert = UIAlertController(title: "Delete Game",
-                                       message: "Delete \(app.name) and all its save data?",
+        let alert = UIAlertController(title: "Xóa game",
+                                       message: "Xóa \"\(app.name)\" và toàn bộ dữ liệu lưu của game?",
                                        preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: "Hủy", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Xóa", style: .destructive) { [weak self] _ in
             guard let self else { return }
             let gid = Self.gameId(for: app)
             try? FileManager.default.removeItem(atPath: Self.documentsDirectory + "/Games Data/" + gid)
@@ -619,14 +559,11 @@ class AppsListViewController: UIViewController,
 
     func collectionView(_ collectionView: UICollectionView,
                         didSelectItemAt indexPath: IndexPath) {
-        let app = apps[indexPath.item]
+        launch(apps[indexPath.item], at: indexPath)
+    }
 
-        let render3dScale = Self.is3DSupersampling(for: app) ? 3 : 1
-        let res = Self.resolution(for: app)
-        let fps = Self.fpsLimit(for: app)
-        let gameVC = GameViewController(jarPath: app.path, appName: app.name, appIcon: app.icon,
-                                         canvasWidth: res.w, canvasHeight: res.h,
-                                         render3dScale: render3dScale, fpsLimit: fps)
+    private func launch(_ app: AppInfo, at indexPath: IndexPath) {
+        let gameVC = GameViewController.make(jarPath: app.path, appName: app.name, appIcon: app.icon)
         gameVC.modalPresentationStyle = .fullScreen
 
         let itemIndex = indexPath.item
