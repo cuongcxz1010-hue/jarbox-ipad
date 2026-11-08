@@ -313,6 +313,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				GCC_OPTIMIZATION_LEVEL = 3;
 				MARKETING_VERSION = 0.1.0;
 				OTHER_CFLAGS = (
 					"-Wno-implicit-function-declaration",

@@ -19,7 +19,10 @@ struct GameSettingsView: View {
     var onClose: () -> Void = {}
 
     @State private var orientation: GameOrientation
-    @State private var stretch: Bool
+    @State private var scaleMode: ScaleMode
+    @State private var preset: KeyboardPreset
+    @State private var keyTheme: KeyTheme
+    @State private var keyShape: KeyShape
     @State private var smooth: Bool
     @State private var resolution: String
     @State private var profileIndex: Int
@@ -46,7 +49,10 @@ struct GameSettingsView: View {
         self.onClose = onClose
         let res = settings.resolution
         _orientation = State(initialValue: settings.orientation)
-        _stretch = State(initialValue: settings.stretchToFill)
+        _scaleMode = State(initialValue: settings.scaleMode)
+        _preset = State(initialValue: profiles.active.preset)
+        _keyTheme = State(initialValue: profiles.active.keyTheme)
+        _keyShape = State(initialValue: profiles.active.keyShape)
         _smooth = State(initialValue: settings.smoothPicture)
         _resolution = State(initialValue: "\(res.w)x\(res.h)")
         _profileIndex = State(initialValue: profiles.activeIndex)
@@ -99,9 +105,10 @@ struct GameSettingsView: View {
                 Text("Luôn nằm ngang").tag(GameOrientation.landscape)
                 Text("Luôn dựng dọc").tag(GameOrientation.portrait)
             }
-            Picker("Kiểu hiển thị", selection: saving($stretch) { settings.stretchToFill = $0 }) {
-                Text("Vừa khít (giữ tỉ lệ)").tag(false)
-                Text("Kéo giãn đầy màn hình").tag(true)
+            Picker("Kiểu hiển thị", selection: saving($scaleMode) { settings.scaleMode = $0 }) {
+                ForEach(ScaleMode.allCases, id: \.self) { mode in
+                    Text(mode.title).tag(mode)
+                }
             }
             Toggle("Làm mịn hình", isOn: saving($smooth) { settings.smoothPicture = $0 })
             Picker("Độ phân giải game", selection: saving($resolution) { value in
@@ -127,18 +134,36 @@ struct GameSettingsView: View {
                 profiles.select(index)
                 opacity = profiles.active.opacity
                 keyScale = profiles.active.scale
+                preset = profiles.active.preset
+                keyTheme = profiles.active.keyTheme
+                keyShape = profiles.active.keyShape
             }) {
                 ForEach(profiles.profiles.indices, id: \.self) { i in
                     Text(profiles.profiles[i].name).tag(i)
                 }
             }
+            Picker("Kiểu bàn phím", selection: saving($preset) { profiles.active.preset = $0 }) {
+                ForEach(KeyboardPreset.allCases, id: \.self) { value in
+                    Text(value.title).tag(value)
+                }
+            }
+            Picker("Màu phím", selection: saving($keyTheme) { profiles.active.keyTheme = $0 }) {
+                ForEach(KeyTheme.allCases, id: \.self) { value in
+                    Text(value.title).tag(value)
+                }
+            }
+            Picker("Hình phím", selection: saving($keyShape) { profiles.active.keyShape = $0 }) {
+                ForEach(KeyShape.allCases, id: \.self) { value in
+                    Text(value.title).tag(value)
+                }
+            }
             VStack(alignment: .leading) {
-                Text("Độ đậm của phím: \(Int(opacity * 100))%")
-                Slider(value: saving($opacity) { profiles.active.opacity = $0 }, in: 0.2...1.0)
+                Text("Độ đậm phím đè lên game: \(Int(opacity * 100))%")
+                Slider(value: saving($opacity) { profiles.active.opacity = $0 }, in: 0.15...1.0)
             }
             VStack(alignment: .leading) {
                 Text("Cỡ phím: \(Int(keyScale * 100))%")
-                Slider(value: saving($keyScale) { profiles.active.scale = $0 }, in: 0.6...1.6)
+                Slider(value: saving($keyScale) { profiles.active.scale = $0 }, in: 0.7...1.4)
             }
             Toggle("Rung khi bấm phím", isOn: saving($haptics) { settings.keyHaptics = $0 })
             if let onEditLayout {
@@ -151,7 +176,7 @@ struct GameSettingsView: View {
         } header: {
             Text("Điều khiển")
         } footer: {
-            Text("Mỗi hồ sơ lưu vị trí, cỡ, độ đậm và ẩn/hiện của từng phím (riêng cho màn hình ngang và dọc). Tạo hồ sơ mới trong Menu khi đang chơi.")
+            Text("Bàn phím giống J2ME Loader: trượt ngón giữa các phím để đổi hướng, bấm nhiều phím cùng lúc, giữ để bấm liên tục. Phím chỉ mờ khi đè lên hình game. Mỗi hồ sơ lưu kiểu bàn phím, màu, cỡ và vị trí từng phím (riêng màn ngang và dọc). Tạo hồ sơ mới trong menu ≡ khi đang chơi.")
         }
     }
 

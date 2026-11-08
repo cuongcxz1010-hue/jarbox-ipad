@@ -51,9 +51,12 @@ int jvm_bridge_init(const char *res_root, const char *save_root, const char *mid
 
     g_jvm->jdwp_enable = 0;
     g_jvm->jdwp_suspend_on_start = 0;
-    g_jvm->max_heap_size = 128 * 1024 * 1024;       // 128MB (java + native via g_native_extra_heap)
-    g_jvm->garbage_collect_period_ms = 500;          // GC every 0.5 sec
-    g_jvm->heap_overload_percent = 70;               // GC at 70% heap
+    // The collector stops every game thread while it marks. Running it twice a
+    // second made games stutter; now it runs every 4 s, or sooner when the
+    // heap (Java objects + native images) passes 75% of 192 MB.
+    g_jvm->max_heap_size = 192 * 1024 * 1024;       // java + native via g_native_extra_heap
+    g_jvm->garbage_collect_period_ms = 4000;
+    g_jvm->heap_overload_percent = 75;
 
     s32 ret = jvm_init(g_jvm, (c8 *)bootclasspath, (c8 *)classpath);
     if (ret) {

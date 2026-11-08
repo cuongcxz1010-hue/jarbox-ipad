@@ -359,15 +359,15 @@ s32 _gc_thread_run(void *para) {
             threadSleep(1000);
             continue;
         }
-        if (cur_mil - collector->lastgc < jvm->garbage_collect_period_ms) {
-            threadSleep(jvm->garbage_collect_period_ms / 2);
-            continue;
-        };
-
+        // Collect when the period has passed or the heap is over the threshold;
+        // look every 250 ms so a burst of allocations is collected early.
         s64 heap = gc_sum_heap(collector);
         s64 threshold = jvm->max_heap_size * jvm->heap_overload_percent / 100;
         s64 native_extra = __atomic_load_n(&g_native_extra_heap, __ATOMIC_RELAXED);
-        if (cur_mil - collector->lastgc > jvm->garbage_collect_period_ms || heap >= threshold) {
+        s64 since = cur_mil - collector->lastgc;
+        // (at most one heap-triggered collection per second: if live data stays
+        //  above the threshold, collecting back-to-back would freeze the game)
+        if (since > jvm->garbage_collect_period_ms || (heap >= threshold && since > 1000)) {
             s64 heap_before = heap;
             _garbage_collect(collector);
             s64 heap_after = gc_sum_heap(collector);
@@ -380,7 +380,8 @@ s32 _gc_thread_run(void *para) {
                        (s64)collector->obj_count);
             collector->lastgc = cur_mil;
         } else {
-            threadSleep(jvm->garbage_collect_period_ms / 2);
+            s64 nap = jvm->garbage_collect_period_ms / 2;
+            threadSleep(nap < 250 ? nap : 250);
         }
     }
     collector->_garbage_thread_status = GARBAGE_THREAD_DEAD;

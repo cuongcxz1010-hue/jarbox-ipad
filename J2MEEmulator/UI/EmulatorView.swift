@@ -45,6 +45,9 @@ class EmulatorView: UIView {
 
     private func setup() {
         backgroundColor = .black
+        isOpaque = true
+        layer.isOpaque = true
+        layer.contentsGravity = .resizeAspect
         layer.magnificationFilter = .nearest
         layer.minificationFilter = .nearest
         contentMode = .scaleAspectFit
@@ -58,11 +61,17 @@ class EmulatorView: UIView {
     /// Called every frame with the CGImage (for glow mirror etc.)
     var onFrame: ((CGImage) -> Void)?
 
-    /// Update the displayed image from a CGImage.
+    /// Update the displayed image from a CGImage (called on the game thread).
+    /// When the game draws faster than the screen can show, frames are
+    /// coalesced: only the newest one is handed to the main thread.
     func displayImage(_ cgImage: CGImage) {
+        guard FrameMailbox.shared.post(cgImage) else { return }
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, let cgImage = FrameMailbox.shared.take() else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
             self.layer.contents = cgImage
+            CATransaction.commit()
             self.onFrame?(cgImage)
             if let cb = self.onFirstFrame {
                 self.onFirstFrame = nil
@@ -143,6 +152,33 @@ class EmulatorView: UIView {
 // ============================================================
 
 private weak var globalEmulatorView: EmulatorView?
+
+/// Newest finished frame waiting for the main thread.
+nonisolated final class FrameMailbox: @unchecked Sendable {
+    static let shared = FrameMailbox()
+    private let lock = NSLock()
+    private var image: CGImage?
+    private var scheduled = false
+
+    /// Store a frame; true when the caller must schedule a main-thread update.
+    func post(_ frame: CGImage) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        image = frame
+        if scheduled { return false }
+        scheduled = true
+        return true
+    }
+
+    func take() -> CGImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        scheduled = false
+        let frame = image
+        image = nil
+        return frame
+    }
+}
 
 func setGlobalEmulatorView(_ view: EmulatorView?) {
     globalEmulatorView = view

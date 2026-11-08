@@ -2,14 +2,15 @@
 //  GameViewController.swift
 //  J2MEEmulator
 //
-//  Runs one J2ME MIDlet in the style of J2ME Loader (Android):
-//  • the game picture scaled to fit (or stretched) — UIKit for speed;
-//  • every phone key on screen (D-pad + OK, soft keys, Call, C/Back, End,
-//    0-9 * #), each one movable / resizable / fadeable / hideable and saved
-//    in per-game control profiles (portrait and landscape separately);
-//  • one Menu button for everything: typing, keys, display, idle tools
-//    (idle mode, auto-press, keep screen on, background), screenshot,
-//    settings (SwiftUI) and help.
+//  Runs one J2ME MIDlet, laid out like J2ME Loader (Android):
+//  • portrait: the game on top, the phone keys on a panel underneath;
+//  • landscape: the game in the middle at full height, the arrow pad and the
+//    number pad beside it (keys shrink to fit the empty bars when they can,
+//    and turn translucent only where they cover the game);
+//  • one overlay handles every key (multi-touch, slide between keys, hold to
+//    repeat) — see VirtualControls.swift;
+//  • the ≡ key opens the JarBox menu: typing, keys (layout, colours, size,
+//    editor, profiles), display, idle tools, screenshot, settings, help.
 //
 
 import SwiftUI
@@ -28,20 +29,19 @@ class GameViewController: UIViewController {
     private let profiles: ControlProfileStore
 
     private let emulatorView = EmulatorView()
-    private let glowContainer = UIView()
-    private let glowContentView = UIView()
-    private let glowBlur = NeutralBlurView(radius: 100)
     private lazy var formView = FormView()
     private lazy var listView = J2MEListView()
     private(set) var placeholderIconView: UIImageView?
 
-    // On-screen controls, keyed by ControlSpec.id
-    private var controlViews: [String: UIView] = [:]
-    private let menuButton = UIButton(type: .system)
+    // On-screen keys (one overlay for all of them) and the JarBox menu key
+    private let keyboard = VirtualKeyboardView()
+    private var menuButton: UIButton { keyboard.menuButton }
     private let autoPressBadge = UIButton(type: .system)
     private let keyInputView = KeyInputView()
     private var textBoxDelegate: J2METextFieldDelegate?
     private var editor: KeyLayoutEditorView?
+    private var lastDefaultFrames: [String: CGRect] = [:]
+    private var appliedLook: (KeyTheme, KeyShape)?
 
     private var showingNativeScreen = false          // a Form or List is shown instead of the canvas
     private var systemKeyboardVisible = false        // iOS keyboard on screen → hide the phone keys
@@ -134,34 +134,10 @@ class GameViewController: UIViewController {
 
         emulatorView.canvasWidth = canvasWidth
         emulatorView.canvasHeight = canvasHeight
-        emulatorView.layer.cornerRadius = 4
-        emulatorView.clipsToBounds = true
 
-        // Soft glow of the game picture behind the screen
-        glowContainer.isUserInteractionEnabled = false
-        glowContainer.clipsToBounds = true
-        glowContentView.layer.magnificationFilter = .trilinear
-        glowContentView.layer.minificationFilter = .trilinear
-        glowContentView.alpha = 0.6
-        glowContainer.addSubview(glowContentView)
-        glowBlur.isUserInteractionEnabled = false
-
-        for v: UIView in [glowContainer, glowBlur, emulatorView, keyInputView] { view.addSubview(v) }
-
-        // Phone keys
-        for spec in ControlCatalog.all {
-            let control: UIView
-            switch spec.kind {
-            case .dpad:
-                control = DPadView()
-            case let .key(code, title, subtitle):
-                control = VirtualKeyButton(title: title, subtitle: subtitle, codes: [code])
-            }
-            controlViews[spec.id] = control
-            view.addSubview(control)
+        for v: UIView in [emulatorView, keyInputView, formView, listView, keyboard, autoPressBadge] {
+            view.addSubview(v)
         }
-
-        for v: UIView in [formView, listView, autoPressBadge, menuButton] { view.addSubview(v) }
         formView.isHidden = true
         listView.isHidden = true
 
@@ -189,9 +165,8 @@ class GameViewController: UIViewController {
             }
         }
 
-        // Mirror game frames to the glow layer
+        // Live preview on the idle screen
         emulatorView.onFrame = { [weak self] cgImage in
-            self?.glowContentView.layer.contents = cgImage
             self?.idleOverlay?.setPreview(cgImage)
         }
 
@@ -221,7 +196,8 @@ class GameViewController: UIViewController {
 
     /// Apply the saved display / control settings to the running screen.
     private func applySettings() {
-        emulatorView.stretchToFill = settings.stretchToFill
+        let mode = settings.scaleMode
+        emulatorView.stretchToFill = mode == .stretch
         emulatorView.smoothScaling = settings.smoothPicture
         virtualKeyHapticsEnabled = settings.keyHaptics
         if SessionKeeper.shared.gameRunning {
@@ -238,11 +214,25 @@ class GameViewController: UIViewController {
         layoutGame()
     }
 
-    private var keyUnit: CGFloat { CGFloat(profiles.active.scale) * (isPad ? 1.0 : 0.7) }
-    private var keyMargin: CGFloat { isPad ? 20 : 10 }
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        keyboard.releaseAll()
+    }
 
-    private func defaultControlFrames() -> [String: CGRect] {
-        ControlCatalog.defaultFrames(in: view.safeAreaLayoutGuide.layoutFrame, unit: keyUnit, margin: keyMargin)
+    /// The game picture inside `area` for the current scale mode.
+    private func gameFrame(in area: CGRect) -> CGRect {
+        let cw = CGFloat(canvasWidth), ch = CGFloat(canvasHeight)
+        guard cw > 0, ch > 0, area.width > 0, area.height > 0 else { return area }
+        let fit = min(area.width / cw, area.height / ch)
+        let scale: CGFloat
+        switch settings.scaleMode {
+        case .stretch: return area.integral
+        case .fit:     scale = fit
+        case .integer: scale = fit >= 1 ? floor(fit) : fit
+        }
+        let size = CGSize(width: floor(cw * scale), height: floor(ch * scale))
+        return CGRect(x: round(area.midX - size.width / 2), y: round(area.midY - size.height / 2),
+                      width: size.width, height: size.height)
     }
 
     private func layoutGame() {
@@ -251,61 +241,66 @@ class GameViewController: UIViewController {
         let portrait = safe.height > safe.width
         let editing = editor != nil
         let keysShown = (settings.keyboardVisible || editing) && !showingNativeScreen && !systemKeyboardVisible
-        let unit = keyUnit
-        let margin = keyMargin
+        let profile = profiles.active
+        let preset = profile.preset
 
-        // Game screen — full height in landscape, above the keys in portrait
-        var area = safe.insetBy(dx: 4, dy: 4)
-        if portrait && keysShown {
-            area.size.height = max(safe.height * 0.45,
-                                   safe.height - ControlCatalog.defaultClusterHeight(unit: unit) - 2 * margin - 8)
+        if appliedLook == nil || appliedLook! != (profile.keyTheme, profile.keyShape) {
+            keyboard.apply(theme: profile.keyTheme, shape: profile.keyShape)
+            appliedLook = (profile.keyTheme, profile.keyShape)
         }
-        let screen: CGRect
-        if settings.stretchToFill {
-            screen = area.integral
-        } else {
-            let cw = CGFloat(canvasWidth), ch = CGFloat(canvasHeight)
-            let scale = min(area.width / cw, area.height / ch)
-            let size = CGSize(width: floor(cw * scale), height: floor(ch * scale))
-            screen = CGRect(x: round(area.midX - size.width / 2), y: round(area.midY - size.height / 2),
-                            width: size.width, height: size.height)
+
+        // Game picture: above the key panel in portrait, full height in landscape
+        var metrics = ControlCatalog.metrics(safe: safe, portrait: portrait,
+                                             userScale: CGFloat(profile.scale), isPad: isPad)
+        var area = safe
+        if portrait && keysShown {
+            let panel = ControlCatalog.portraitPanelHeight(metrics, preset: preset)
+            area.size.height = max(safe.height * 0.42, safe.height - panel)
+        }
+        let screen = gameFrame(in: area.insetBy(dx: 2, dy: 2))
+        if !portrait && keysShown {
+            metrics = ControlCatalog.fitBesideGame(metrics, safe: safe, game: screen)
         }
         emulatorView.frame = screen
-        glowContainer.frame = screen
-        glowContentView.frame = glowContainer.bounds
-        glowBlur.frame = view.bounds
         placeholderIconView?.center = CGPoint(x: screen.midX, y: screen.midY)
         formView.frame = view.bounds
         listView.frame = view.bounds
         keyInputView.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
 
-        // Phone keys: default frame, or where the user put them in this profile
-        let defaults = ControlCatalog.defaultFrames(in: safe, unit: unit, margin: margin)
-        let profileOpacity = profiles.active.opacity
+        // Keys: default place, or where the user put them in this profile
+        keyboard.frame = view.bounds
+        keyboard.setHitSlop(metrics.gap / 2 + 2)
+        let defaults = ControlCatalog.defaultFrames(safe: safe, portrait: portrait, preset: preset, metrics: metrics)
+        lastDefaultFrames = defaults
         for spec in ControlCatalog.all {
-            guard let control = controlViews[spec.id], let base = defaults[spec.id] else { continue }
+            guard let base = defaults[spec.id] else { continue }
             let placement = profiles.placement(spec.id, portrait: portrait)
-            control.frame = frame(for: base, placement: placement, safe: safe)
-            let hidden = placement?.hidden ?? false
-            control.isHidden = !keysShown || (hidden && !editing)
-            let alpha = max(0.15, min(1.0, profileOpacity * (placement?.opacity ?? 1)))
-            control.alpha = CGFloat(alpha) * (hidden && editing ? 0.35 : 1)
-        }
+            var keyFrame = frame(for: base, placement: placement, safe: safe)
+            let hiddenByUser = placement?.hidden ?? !ControlCatalog.visibleByDefault(spec.id, preset: preset)
+            let keyOpacity = CGFloat(placement?.opacity ?? 1)
+            // Translucent only where the key covers the game (like J2ME Loader)
+            let covers = keyFrame.intersects(screen)
+            var alpha = covers ? CGFloat(profile.opacity) * keyOpacity : keyOpacity
+            var visible = keysShown && (!hiddenByUser || editing)
+            if editing && hiddenByUser { alpha = 0.3 }
 
-        // Menu: centred on the soft-key row in portrait, top-right otherwise
-        let menuSize = CGSize(width: 110, height: 44)
-        if portrait && keysShown, let softRow = defaults["softL"] {
-            menuButton.frame = CGRect(x: round(safe.midX - menuSize.width / 2), y: softRow.midY - menuSize.height / 2,
-                                      width: menuSize.width, height: menuSize.height)
-        } else {
-            menuButton.frame = CGRect(x: safe.maxX - menuSize.width - 10, y: safe.minY + 10,
-                                      width: menuSize.width, height: menuSize.height)
+            if spec.id == "menu" {
+                // The menu key is always reachable
+                visible = idleOverlay == nil
+                if !keysShown {
+                    let size = metrics.menuSize
+                    keyFrame = CGRect(x: safe.maxX - metrics.margin - size.width, y: safe.minY + metrics.margin,
+                                   width: size.width, height: size.height)
+                }
+                alpha = keyFrame.intersects(screen) || showingNativeScreen ? max(0.55, CGFloat(profile.opacity)) : 1
+            }
+            keyboard.place(spec.id, frame: keyFrame, alpha: max(0.12, min(1, alpha)), visible: visible)
         }
-        menuButton.isHidden = editing
+        keyboard.isEditing = editing
 
         let badgeSize = autoPressBadge.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         autoPressBadge.frame = CGRect(x: safe.minX + 10, y: safe.minY + 10,
-                                      width: min(badgeSize.width, safe.width - menuSize.width - 40), height: 40)
+                                      width: min(badgeSize.width, safe.width - metrics.menuSize.width - 40), height: 40)
 
         if let editor {
             editor.frame = view.bounds
@@ -326,22 +321,6 @@ class GameViewController: UIViewController {
     // MARK: - Menu
 
     private func setupMenuButton() {
-        var config = UIButton.Configuration.filled()
-        config.title = "Menu"
-        config.image = UIImage(systemName: "line.3.horizontal")
-        config.imagePadding = 6
-        config.cornerStyle = .capsule
-        config.baseBackgroundColor = UIColor(white: 0, alpha: 0.55)
-        config.baseForegroundColor = .white
-        config.background.strokeColor = UIColor(white: 1, alpha: 0.6)
-        config.background.strokeWidth = 1.5
-        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attrs in
-            var attrs = attrs
-            attrs.font = .systemFont(ofSize: 16, weight: .semibold)
-            return attrs
-        }
-        menuButton.configuration = config
-        menuButton.accessibilityLabel = "Menu"
         menuButton.showsMenuAsPrimaryAction = true
         menuButton.preferredMenuElementOrder = .fixed
         menuButton.menu = UIMenu(children: [
@@ -363,6 +342,7 @@ class GameViewController: UIViewController {
                                   image: UIImage(systemName: keysVisible ? "eye.slash" : "gamecontroller")) { [weak self] _ in
             guard let self else { return }
             self.settings.keyboardVisible = !keysVisible
+            self.keyboard.releaseAll()
             self.view.setNeedsLayout()
         }
         items.append(UIMenu(options: .displayInline, children: [typing, toggleKeys]))
@@ -396,14 +376,65 @@ class GameViewController: UIViewController {
         return items
     }
 
+    /// Change the active control profile and re-layout.
+    private func updateProfile(_ change: (inout ControlProfile) -> Void) {
+        var p = profiles.active
+        change(&p)
+        profiles.active = p
+        keyboard.releaseAll()
+        view.setNeedsLayout()
+    }
+
     private func controlsMenu() -> UIMenu {
+        let profile = profiles.active
         let edit = UIAction(title: "Kéo thả, đổi cỡ từng phím…", image: UIImage(systemName: "hand.draw")) { [weak self] _ in
             self?.startLayoutEditor()
         }
 
+        let layoutMenu = UIMenu(title: "Kiểu bàn phím", subtitle: profile.preset.title,
+                                image: UIImage(systemName: "square.grid.3x3"),
+                                children: KeyboardPreset.allCases.map { preset in
+            UIAction(title: preset.title, state: preset == profile.preset ? .on : .off) { [weak self] _ in
+                self?.updateProfile { $0.preset = preset }
+            }
+        })
+        let themeMenu = UIMenu(title: "Màu phím", subtitle: profile.keyTheme.title,
+                               image: UIImage(systemName: "paintpalette"),
+                               children: KeyTheme.allCases.map { theme in
+            UIAction(title: theme.title, state: theme == profile.keyTheme ? .on : .off) { [weak self] _ in
+                self?.updateProfile { $0.keyTheme = theme }
+            }
+        })
+        let shapeMenu = UIMenu(title: "Hình phím", subtitle: profile.keyShape.title,
+                               image: UIImage(systemName: "app"),
+                               children: KeyShape.allCases.map { shape in
+            UIAction(title: shape.title, state: shape == profile.keyShape ? .on : .off) { [weak self] _ in
+                self?.updateProfile { $0.keyShape = shape }
+            }
+        })
+
+        let scale = profile.scale
+        let keySize = UIMenu(title: "Cỡ phím", image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"), children: [
+            (0.8, "Nhỏ"), (0.9, "Hơi nhỏ"), (1.0, "Vừa"), (1.15, "Lớn"), (1.3, "Rất lớn"),
+        ].map { value, title in
+            UIAction(title: title, state: abs(value - scale) < 0.01 ? .on : .off) { [weak self] _ in
+                self?.updateProfile { $0.scale = value }
+            }
+        })
+
+        let opacity = profile.opacity
+        let keyOpacity = UIMenu(title: "Độ đậm phím đè lên game", image: UIImage(systemName: "circle.lefthalf.filled"), children: [
+            (0.25, "Rất mờ"), (0.45, "Mờ (mặc định)"), (0.65, "Vừa"), (0.85, "Rõ"), (1.0, "Đậm"),
+        ].map { value, title in
+            UIAction(title: title, state: abs(value - opacity) < 0.01 ? .on : .off) { [weak self] _ in
+                self?.updateProfile { $0.opacity = value }
+            }
+        })
+
         var profileItems: [UIMenuElement] = profiles.profiles.indices.map { i in
             UIAction(title: profiles.profiles[i].name, state: i == profiles.activeIndex ? .on : .off) { [weak self] _ in
                 self?.profiles.select(i)
+                self?.keyboard.releaseAll()
                 self?.view.setNeedsLayout()
             }
         }
@@ -423,31 +454,12 @@ class GameViewController: UIViewController {
             profileItems.append(UIAction(title: "Xóa hồ sơ \"\(profiles.active.name)\"", image: UIImage(systemName: "trash"),
                                          attributes: .destructive) { [weak self] _ in
                 self?.profiles.removeActive()
+                self?.keyboard.releaseAll()
                 self?.view.setNeedsLayout()
             })
         }
         let profileMenu = UIMenu(title: "Hồ sơ phím", subtitle: profiles.active.name,
                                  image: UIImage(systemName: "person.crop.rectangle.stack"), children: profileItems)
-
-        let scale = profiles.active.scale
-        let keySize = UIMenu(title: "Cỡ phím", image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"), children: [
-            (0.8, "Nhỏ"), (1.0, "Vừa"), (1.2, "Lớn"), (1.4, "Rất lớn"),
-        ].map { value, title in
-            UIAction(title: title, state: abs(value - scale) < 0.01 ? .on : .off) { [weak self] _ in
-                self?.profiles.active.scale = value
-                self?.view.setNeedsLayout()
-            }
-        })
-
-        let opacity = profiles.active.opacity
-        let keyOpacity = UIMenu(title: "Độ đậm của phím", image: UIImage(systemName: "circle.lefthalf.filled"), children: [
-            (0.35, "Mờ"), (0.55, "Vừa"), (0.75, "Rõ"), (1.0, "Đậm nhất"),
-        ].map { value, title in
-            UIAction(title: title, state: abs(value - opacity) < 0.01 ? .on : .off) { [weak self] _ in
-                self?.profiles.active.opacity = value
-                self?.view.setNeedsLayout()
-            }
-        })
 
         let haptics = UIAction(title: "Rung khi bấm phím", image: UIImage(systemName: "iphone.radiowaves.left.and.right"),
                                state: settings.keyHaptics ? .on : .off) { [weak self] _ in
@@ -457,7 +469,7 @@ class GameViewController: UIViewController {
         }
 
         return UIMenu(title: "Phím điều khiển", image: UIImage(systemName: "gamecontroller"),
-                      children: [edit, profileMenu, keySize, keyOpacity, haptics])
+                      children: [layoutMenu, edit, keySize, keyOpacity, themeMenu, shapeMenu, profileMenu, haptics])
     }
 
     private func displayMenu() -> UIMenu {
@@ -472,17 +484,15 @@ class GameViewController: UIViewController {
             }
         })
 
-        let stretch = settings.stretchToFill
-        let scaling = UIMenu(title: "Kiểu hiển thị", image: UIImage(systemName: "rectangle.expand.vertical"), children: [
-            UIAction(title: "Vừa khít (giữ tỉ lệ)", state: stretch ? .off : .on) { [weak self] _ in
-                self?.settings.stretchToFill = false
+        let mode = settings.scaleMode
+        let scaling = UIMenu(title: "Kiểu hiển thị", subtitle: mode.title,
+                             image: UIImage(systemName: "rectangle.expand.vertical"),
+                             children: ScaleMode.allCases.map { value in
+            UIAction(title: value.title, state: value == mode ? .on : .off) { [weak self] _ in
+                self?.settings.scaleMode = value
                 self?.applySettings()
-            },
-            UIAction(title: "Kéo giãn đầy màn hình", state: stretch ? .on : .off) { [weak self] _ in
-                self?.settings.stretchToFill = true
-                self?.applySettings()
-            },
-        ])
+            }
+        })
 
         let smooth = UIAction(title: "Làm mịn hình", image: UIImage(systemName: "wand.and.stars"),
                               state: settings.smoothPicture ? .on : .off) { [weak self] _ in
@@ -613,12 +623,14 @@ class GameViewController: UIViewController {
     private func exitGame() {
         userRequestedExit = true
         menuButton.isEnabled = false
+        keyboard.releaseAll()
         jvm_bridge_request_stop()
     }
 
     // MARK: - Settings screen (SwiftUI)
 
     private func openSettings() {
+        keyboard.releaseAll()
         let settingsView = GameSettingsView(
             gameName: appName, settings: settings, profiles: profiles, inGame: true,
             onChange: { [weak self] in self?.applySettings() },
@@ -634,6 +646,7 @@ class GameViewController: UIViewController {
     }
 
     private func settingsClosed() {
+        appliedLook = nil
         applySettings()
         requestOrientationUpdate()
         askRestartForResolution()
@@ -644,6 +657,7 @@ class GameViewController: UIViewController {
     private func startLayoutEditor() {
         guard editor == nil else { return }
         keyInputView.resignFirstResponder()
+        keyboard.releaseAll()
         let ed = KeyLayoutEditorView(frame: view.bounds)
         ed.placementFor = { [weak self] id in self?.currentPlacement(id) }
         ed.onMove = { [weak self] id, center, finished in self?.editorMove(id, center: center, finished: finished) }
@@ -660,9 +674,10 @@ class GameViewController: UIViewController {
         editor = ed
         view.setNeedsLayout()
         view.layoutIfNeeded()
+        let views = keyboard.allKeyViews
         ed.items = ControlCatalog.all.compactMap { spec -> KeyLayoutEditorView.Item? in
-            guard let control = controlViews[spec.id] else { return nil }
-            return KeyLayoutEditorView.Item(id: spec.id, name: spec.name, view: control)
+            guard let v = views[spec.id] else { return nil }
+            return KeyLayoutEditorView.Item(id: spec.id, name: spec.name, view: v)
         }
     }
 
@@ -676,12 +691,14 @@ class GameViewController: UIViewController {
     private func currentPlacement(_ id: String) -> KeyPlacement {
         if let p = profiles.placement(id, portrait: isPortraitNow) { return p }
         let safe = view.safeAreaLayoutGuide.layoutFrame
-        let c = controlViews[id]?.center ?? CGPoint(x: safe.midX, y: safe.midY)
-        return KeyPlacement(x: Double((c.x - safe.minX) / safe.width), y: Double((c.y - safe.minY) / safe.height))
+        let c = keyboard.allKeyViews[id]?.center ?? CGPoint(x: safe.midX, y: safe.midY)
+        var p = KeyPlacement(x: Double((c.x - safe.minX) / safe.width), y: Double((c.y - safe.minY) / safe.height))
+        p.hidden = !ControlCatalog.visibleByDefault(id, preset: profiles.active.preset)
+        return p
     }
 
     private func editorMove(_ id: String, center: CGPoint, finished: Bool) {
-        guard let control = controlViews[id] else { return }
+        guard let control = keyboard.allKeyViews[id] else { return }
         let w = control.bounds.width, h = control.bounds.height
         let c = CGPoint(x: min(max(center.x, w / 2), view.bounds.width - w / 2),
                         y: min(max(center.y, h / 2), view.bounds.height - h / 2))
@@ -692,10 +709,11 @@ class GameViewController: UIViewController {
         p.x = Double((c.x - safe.minX) / safe.width)
         p.y = Double((c.y - safe.minY) / safe.height)
         profiles.setPlacement(p, id, portrait: isPortraitNow)
+        view.setNeedsLayout()
     }
 
     private func editorScale(_ id: String, scale: Double, finished: Bool) {
-        guard let control = controlViews[id], let base = defaultControlFrames()[id] else { return }
+        guard let control = keyboard.allKeyViews[id], let base = lastDefaultFrames[id] else { return }
         let c = control.center
         let size = CGSize(width: base.width * CGFloat(scale), height: base.height * CGFloat(scale))
         control.frame = CGRect(x: c.x - size.width / 2, y: c.y - size.height / 2, width: size.width, height: size.height)
@@ -714,6 +732,14 @@ class GameViewController: UIViewController {
     }
 
     private func editorToggleHidden(_ id: String) {
+        guard id != "menu" else {
+            let alert = UIAlertController(title: "Không ẩn được phím Menu",
+                                          message: "Phím ≡ là đường vào menu của JarBox nên luôn hiện. Bạn có thể kéo nó sang chỗ khác.",
+                                          preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+            return
+        }
         var p = currentPlacement(id)
         p.hidden.toggle()
         profiles.setPlacement(p, id, portrait: isPortraitNow)
@@ -927,13 +953,14 @@ class GameViewController: UIViewController {
     }
 
     private static let helpText = """
-    • Vòng tròn bên trái (D-pad): di chuyển, chọn mục, đổi tab. Nút OK ở giữa = chọn / đồng ý. Chạm vào khe giữa 2 mũi tên để đi chéo.
-    • "Trái" / "Phải" (phím mềm): bấm theo chữ game hiện ở góc dưới màn hình game (Menu, OK, Quay lại…).
-    • Phím số 0–9, *, # như điện thoại; C = xóa/quay lại; Gọi; Tắt.
-    • Có thể chạm thẳng vào màn hình game.
-    • Ô tài khoản / mật khẩu / chat: chạm vào ô, bàn phím iPad tự hiện.
-    • Menu: gõ chữ, ẩn/hiện phím, kéo thả và đổi cỡ từng phím, hồ sơ phím, xoay màn hình, cài đặt.
-    • Treo lâu: Menu → Treo game → Treo máy ổn định (màn tối, khóa chạm, giảm FPS).
+    Giống J2ME Loader:
+    • Mũi tên ↑ ↓ ← → để đi, 4 góc ↖ ↗ ↙ ↘ để đi chéo, OK ở giữa để chọn / đánh.
+    • Không cần nhấc tay: trượt ngón từ phím này sang phím kia là đổi hướng ngay. Bấm được nhiều phím cùng lúc (vừa đi vừa đánh). Giữ phím để bấm liên tục.
+    • L / R = phím mềm trái / phải (bấm theo chữ game hiện ở 2 góc dưới: Menu, OK, Quay lại…).
+    • 0–9, *, # như bàn phím điện thoại.
+    • ≡ = menu của JarBox: gõ chữ, kiểu bàn phím, kéo thả / đổi cỡ phím, màu phím, xoay màn hình, treo game, cài đặt, thoát.
+    • Ô tài khoản / mật khẩu / chat: chạm vào ô là bàn phím iPad hiện ra.
+    • Chạm thẳng vào hình game cũng được (game cảm ứng).
     """
 
     private func showHelp() {
@@ -943,7 +970,7 @@ class GameViewController: UIViewController {
     }
 
     private func showHelpOnFirstRun() {
-        let key = "shownControlsHelp_v3"
+        let key = "shownControlsHelp_v4"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
         UserDefaults.standard.set(true, forKey: key)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
@@ -989,6 +1016,7 @@ class GameViewController: UIViewController {
     }
 
     @objc private func appWillResignActive() {
+        keyboard.releaseAll()                        // no key stays held while away
         if idleOverlay != nil { dimScreen(false) }   // never leave the device dimmed
     }
 
@@ -1028,6 +1056,7 @@ class GameViewController: UIViewController {
         for press in presses {
             if let code = j2meKeyCode(for: press) {
                 j2me_input_post_key(type, code)
+                keyboard.showHardwareKey(code, pressed: type == Int32(J2ME_INPUT_KEY_PRESSED))
             } else {
                 unhandled.insert(press)
             }
@@ -1153,6 +1182,7 @@ class GameViewController: UIViewController {
     func showFormView() {
         didShowContent = true
         showingNativeScreen = true
+        keyboard.releaseAll()
         formView.buildFromNativeData()
         formView.isHidden = false
         emulatorView.isHidden = true
@@ -1163,6 +1193,7 @@ class GameViewController: UIViewController {
     func showListView() {
         didShowContent = true
         showingNativeScreen = true
+        keyboard.releaseAll()
         listView.buildFromNativeData()
         listView.isHidden = false
         emulatorView.isHidden = true
@@ -1173,6 +1204,7 @@ class GameViewController: UIViewController {
     /// MIDP TextBox → iOS text-entry dialog with the system keyboard.
     func showTextBox() {
         didShowContent = true
+        keyboard.releaseAll()
         keyInputView.resignFirstResponder()
 
         let title = String(cString: j2me_ui_get_form_title())

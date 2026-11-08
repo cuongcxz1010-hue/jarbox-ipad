@@ -24,6 +24,8 @@ public class Graphics {
     private int color = 0;
     private Font font = Font.getDefaultFont();
     private int translateX = 0, translateY = 0;
+    // Clip in absolute (untranslated) coordinates: it stays put when the
+    // origin is translated later; getClipX/Y report it relative to the origin.
     private int clipX, clipY, clipW, clipH;
     private int strokeStyle = SOLID;
 
@@ -101,26 +103,31 @@ public class Graphics {
     // --- Clip ---
 
     public void setClip(int x, int y, int w, int h) {
+        setClipAbsolute(x + translateX, y + translateY, w, h);
+    }
+
+    private void setClipAbsolute(int x, int y, int w, int h) {
+        if (w < 0) w = 0;
+        if (h < 0) h = 0;
         clipX = x;
         clipY = y;
         clipW = w;
         clipH = h;
-        NativeBridge.setClip(nativeContext, x + translateX, y + translateY, w, h);
+        NativeBridge.setClip(nativeContext, x, y, w, h);
     }
 
     public void clipRect(int x, int y, int w, int h) {
-        // Intersect with current clip
-        int nx = Math.max(clipX, x);
-        int ny = Math.max(clipY, y);
-        int nw = Math.min(clipX + clipW, x + w) - nx;
-        int nh = Math.min(clipY + clipH, y + h) - ny;
-        if (nw < 0) nw = 0;
-        if (nh < 0) nh = 0;
-        setClip(nx, ny, nw, nh);
+        // Intersect with the current clip (absolute coordinates)
+        int ax = x + translateX, ay = y + translateY;
+        int nx = Math.max(clipX, ax);
+        int ny = Math.max(clipY, ay);
+        int nw = Math.min(clipX + clipW, ax + w) - nx;
+        int nh = Math.min(clipY + clipH, ay + h) - ny;
+        setClipAbsolute(nx, ny, nw, nh);
     }
 
-    public int getClipX() { return clipX; }
-    public int getClipY() { return clipY; }
+    public int getClipX() { return clipX - translateX; }
+    public int getClipY() { return clipY - translateY; }
     public int getClipWidth() { return clipW; }
     public int getClipHeight() { return clipH; }
 
@@ -263,11 +270,6 @@ public class Graphics {
         if ((anchor & RIGHT) != 0) xDest -= width;
         if ((anchor & VCENTER) != 0) yDest -= height / 2;
         if ((anchor & BOTTOM) != 0) yDest -= height;
-        // Read pixels from source area, write to dest
-        int[] pixels = new int[width * height];
-        // Use a temporary approach — read from the context's backing image
-        // For now, use drawRegion-like approach through native
-        // This is a simplified implementation
         NativeBridge.copyArea(nativeContext, xSrc + translateX, ySrc + translateY,
                 width, height, xDest + translateX, yDest + translateY);
     }

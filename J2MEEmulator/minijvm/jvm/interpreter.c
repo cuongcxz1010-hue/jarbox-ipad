@@ -641,8 +641,11 @@ s32 execute_method_impl(MethodInfo *method, Runtime *pruntime) {
                 localvar = runtime->localvar;
                 sp = runtime->stack->sp;
 
+                // Debugger hooks only when a debugger can attach (never in JarBox):
+                // checked once per method call instead of a function call per bytecode.
+                const s32 jdwp_on = jvm->jdwp_enable && jvm->jdwpserver;
                 do {
-                    if (jdwp_client_count(jvm->jdwpserver)) {
+                    if (jdwp_on && jdwp_client_count(jvm->jdwpserver)) {
                         stack->sp = sp;
 
                         if (!runtime->thrd_info->no_pause) {

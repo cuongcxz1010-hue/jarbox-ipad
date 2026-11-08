@@ -16,6 +16,7 @@
 #include "jvm_util.h"
 #include <stdio.h>
 #include <stdatomic.h>
+#include <pthread.h>
 
 // ============================================================
 // Internal structures
@@ -43,6 +44,11 @@ typedef struct RenderContext {
     int fontStyle;
     int clipSaved;
     int ownsPixels;
+    // Mirror of the Graphics state, for the software blitters and for
+    // re-applying after CGContextRestoreGState (setClip).
+    int argb;
+    int dashed;
+    int clipX, clipY, clipW, clipH;
     _Atomic int32_t refcount;
     struct RenderContext *next_dead;
 } RenderContext;
@@ -246,6 +252,208 @@ static inline void setColorFromARGB(CGContextRef ctx, int argb) {
     CGContextSetRGBStrokeColor(ctx, r, g, b, a);
 }
 
+static inline void applyDash(CGContextRef ctx, int dashed) {
+    if (dashed) {
+        CGFloat dash[] = {2.0, 2.0};
+        CGContextSetLineDash(ctx, 0, dash, 2);
+    } else {
+        CGContextSetLineDash(ctx, 0, NULL, 0);
+    }
+}
+
+// ============================================================
+// Fonts — one shared CTFont per (face, style, size)
+// ============================================================
+// CTFontCreateWithName is slow; games call setFont many times per frame.
+
+static CTFontRef g_fonts[3][4][3];
+static pthread_mutex_t g_font_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static inline int faceIndex(int face) { return face == 32 ? 1 : (face == 64 ? 2 : 0); }
+static inline int sizeIndex(int size) { return size == 8 ? 0 : (size == 16 ? 2 : 1); }
+
+/// Shared font (not retained — CFRetain it to keep a reference).
+static CTFontRef sharedFont(int face, int style, int size) {
+    int fi = faceIndex(face), si = sizeIndex(size), st = style & 3;
+    CTFontRef f = __atomic_load_n(&g_fonts[fi][st][si], __ATOMIC_ACQUIRE);
+    if (f) return f;
+    pthread_mutex_lock(&g_font_lock);
+    f = g_fonts[fi][st][si];
+    if (!f) {
+        static const CGFloat sizes[3] = {10.0, 14.0, 18.0};
+        CFStringRef name;
+        if (fi == 1) {
+            name = st == 3 ? CFSTR("Courier-BoldOblique") : st == 1 ? CFSTR("Courier-Bold")
+                 : st == 2 ? CFSTR("Courier-Oblique") : CFSTR("Courier");
+        } else {
+            name = st == 3 ? CFSTR("Helvetica-BoldOblique") : st == 1 ? CFSTR("Helvetica-Bold")
+                 : st == 2 ? CFSTR("Helvetica-Oblique") : CFSTR("Helvetica");
+        }
+        f = CTFontCreateWithName(name, sizes[si], NULL);
+        __atomic_store_n(&g_fonts[fi][st][si], f, __ATOMIC_RELEASE);
+    }
+    pthread_mutex_unlock(&g_font_lock);
+    return f;
+}
+
+/// Text attributes: font, colour from the context, no kerning and no
+/// optional ligatures — so a string is exactly as wide as the sum of its
+/// characters (Font.charWidth / stringWidth stay consistent with drawing).
+static CFDictionaryRef textAttributes(CTFontRef font, int colorFromContext) {
+    static CFNumberRef zeroFloat = NULL, zeroInt = NULL;
+    if (!zeroFloat) {
+        float z = 0; int zi = 0;
+        zeroFloat = CFNumberCreate(NULL, kCFNumberFloatType, &z);
+        zeroInt = CFNumberCreate(NULL, kCFNumberIntType, &zi);
+    }
+    CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(NULL, 4,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(attrs, kCTFontAttributeName, font);
+    CFDictionarySetValue(attrs, kCTKernAttributeName, zeroFloat);
+    CFDictionarySetValue(attrs, kCTLigatureAttributeName, zeroInt);
+    if (colorFromContext) CFDictionarySetValue(attrs, kCTForegroundColorFromContextAttributeName, kCFBooleanTrue);
+    return attrs;
+}
+
+static double measureText(CTFontRef font, CFStringRef str) {
+    CFDictionaryRef attrs = textAttributes(font, 0);
+    CFAttributedStringRef attrStr = CFAttributedStringCreate(NULL, str, attrs);
+    CTLineRef line = CTLineCreateWithAttributedString(attrStr);
+    double w = CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+    CFRelease(line); CFRelease(attrStr); CFRelease(attrs);
+    return w;
+}
+
+// ============================================================
+// Software blitters (the hot path of 2D games)
+// ============================================================
+// All bitmaps are 32-bit premultiplied ARGB, little-endian words
+// (kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little), row 0 at
+// the top. Drawing tiles and sprites by copying pixels directly is many
+// times faster than creating a CGImage and calling CGContextDrawImage for
+// every drawImage / drawRegion — 2D games do hundreds of those per frame.
+
+/// d * f / 255 for all four channels (f = 0…255).
+static inline uint32_t scalePixel(uint32_t d, uint32_t f) {
+    uint32_t rb = (d & 0x00FF00FFu) * f + 0x00800080u;
+    rb = ((rb + ((rb >> 8) & 0x00FF00FFu)) >> 8) & 0x00FF00FFu;
+    uint32_t ag = ((d >> 8) & 0x00FF00FFu) * f + 0x00800080u;
+    ag = (ag + ((ag >> 8) & 0x00FF00FFu)) & 0xFF00FF00u;
+    return rb | ag;
+}
+
+/// Source-over of a premultiplied pixel.
+static inline void blendPixel(uint32_t *d, uint32_t s) {
+    uint32_t a = s >> 24;
+    if (a == 255) *d = s;
+    else if (a) *d = s + scalePixel(*d, 255 - a);
+}
+
+/// Current clip of a context intersected with its bounds.
+static inline void clipBounds(RenderContext *rc, int *x0, int *y0, int *x1, int *y1) {
+    int cx0 = rc->clipX, cy0 = rc->clipY;
+    int cx1 = rc->clipX + rc->clipW, cy1 = rc->clipY + rc->clipH;
+    *x0 = cx0 > 0 ? cx0 : 0;
+    *y0 = cy0 > 0 ? cy0 : 0;
+    *x1 = cx1 < rc->width ? cx1 : rc->width;
+    *y1 = cy1 < rc->height ? cy1 : rc->height;
+}
+
+/// drawRegion / drawImage by copying pixels. (xDst, yDst) is the top-left of
+/// the transformed output. Returns 0 when the caller must fall back to
+/// Core Graphics (unusual bitmap, region outside the image, image drawn
+/// onto itself).
+static int blitRegion(RenderContext *rc, RenderImage *img, int xSrc, int ySrc, int w, int h,
+                      int transform, int xDst, int yDst) {
+    if (w <= 0 || h <= 0) return 1;
+    if (xSrc < 0 || ySrc < 0 || xSrc + w > img->width || ySrc + h > img->height) return 0;
+    uint8_t *dbase = (uint8_t *)CGBitmapContextGetData(rc->ctx);
+    uint8_t *sbase = (uint8_t *)CGBitmapContextGetData(img->ctx);
+    if (!dbase || !sbase || dbase == sbase) return 0;
+    if (CGBitmapContextGetBitsPerPixel(rc->ctx) != 32 || CGBitmapContextGetBitsPerPixel(img->ctx) != 32) return 0;
+    ptrdiff_t dstride = (ptrdiff_t)(CGBitmapContextGetBytesPerRow(rc->ctx) / 4);
+    ptrdiff_t sstride = (ptrdiff_t)(CGBitmapContextGetBytesPerRow(img->ctx) / 4);
+
+    // Output pixel (u, v) shows source pixel (sx0 + u*sxu + v*sxv, sy0 + u*syu + v*syv)
+    int sx0, sy0, sxu, syu, sxv, syv, outW = w, outH = h;
+    switch (transform) {
+        case 0: sx0 = 0;     sy0 = 0;     sxu = 1;  syu = 0;  sxv = 0;  syv = 1;  break; // NONE
+        case 2: sx0 = w - 1; sy0 = 0;     sxu = -1; syu = 0;  sxv = 0;  syv = 1;  break; // MIRROR
+        case 1: sx0 = 0;     sy0 = h - 1; sxu = 1;  syu = 0;  sxv = 0;  syv = -1; break; // MIRROR_ROT180
+        case 3: sx0 = w - 1; sy0 = h - 1; sxu = -1; syu = 0;  sxv = 0;  syv = -1; break; // ROT180
+        case 5: sx0 = 0;     sy0 = h - 1; sxu = 0;  syu = -1; sxv = 1;  syv = 0;  outW = h; outH = w; break; // ROT90
+        case 6: sx0 = w - 1; sy0 = 0;     sxu = 0;  syu = 1;  sxv = -1; syv = 0;  outW = h; outH = w; break; // ROT270
+        case 7: sx0 = w - 1; sy0 = h - 1; sxu = 0;  syu = -1; sxv = -1; syv = 0;  outW = h; outH = w; break; // MIRROR_ROT90
+        case 4: sx0 = 0;     sy0 = 0;     sxu = 0;  syu = 1;  sxv = 1;  syv = 0;  outW = h; outH = w; break; // MIRROR_ROT270
+        default: return 0;
+    }
+
+    int cx0, cy0, cx1, cy1;
+    clipBounds(rc, &cx0, &cy0, &cx1, &cy1);
+    int dx0 = xDst > cx0 ? xDst : cx0, dy0 = yDst > cy0 ? yDst : cy0;
+    int dx1 = xDst + outW < cx1 ? xDst + outW : cx1, dy1 = yDst + outH < cy1 ? yDst + outH : cy1;
+    if (dx0 >= dx1 || dy0 >= dy1) return 1;
+
+    ptrdiff_t stepU = sxu + syu * sstride, stepV = sxv + syv * sstride;
+    const uint32_t *origin = (const uint32_t *)sbase + (ptrdiff_t)(ySrc + sy0) * sstride + (xSrc + sx0);
+    uint32_t *drow = (uint32_t *)dbase + (ptrdiff_t)dy0 * dstride;
+    int u0 = dx0 - xDst, count = dx1 - dx0;
+    for (int dy = dy0; dy < dy1; dy++, drow += dstride) {
+        const uint32_t *s = origin + (ptrdiff_t)u0 * stepU + (ptrdiff_t)(dy - yDst) * stepV;
+        uint32_t *d = drow + dx0;
+        if (stepU == 1) {
+            for (int n = 0; n < count; n++) blendPixel(d + n, s[n]);
+        } else {
+            for (int n = count; n > 0; n--, d++, s += stepU) blendPixel(d, *s);
+        }
+    }
+    return 1;
+}
+
+/// drawRGB by writing pixels directly (non-premultiplied ARGB input).
+static int blitRGB(RenderContext *rc, const int32_t *src, int32_t arrLen, int32_t offset, int32_t scan,
+                   int x, int y, int w, int h, int processAlpha) {
+    uint8_t *dbase = (uint8_t *)CGBitmapContextGetData(rc->ctx);
+    if (!dbase || CGBitmapContextGetBitsPerPixel(rc->ctx) != 32) return 0;
+    ptrdiff_t dstride = (ptrdiff_t)(CGBitmapContextGetBytesPerRow(rc->ctx) / 4);
+    int cx0, cy0, cx1, cy1;
+    clipBounds(rc, &cx0, &cy0, &cx1, &cy1);
+    int dx0 = x > cx0 ? x : cx0, dy0 = y > cy0 ? y : cy0;
+    int dx1 = x + w < cx1 ? x + w : cx1, dy1 = y + h < cy1 ? y + h : cy1;
+    for (int dy = dy0; dy < dy1; dy++) {
+        uint32_t *d = (uint32_t *)dbase + (ptrdiff_t)dy * dstride;
+        int64_t rowStart = (int64_t)offset + (int64_t)(dy - y) * scan - x;
+        for (int dx = dx0; dx < dx1; dx++) {
+            int64_t idx = rowStart + dx;
+            if (idx < 0 || idx >= arrLen) continue;
+            uint32_t argb = (uint32_t)src[idx];
+            uint32_t a = processAlpha ? (argb >> 24) : 255;
+            if (a == 255) d[dx] = argb | 0xFF000000u;
+            else if (a) blendPixel(d + dx, (a << 24) | (scalePixel(argb, a) & 0x00FFFFFFu));
+        }
+    }
+    return 1;
+}
+
+/// Snapshot of the screen for display. The pixels are copied (instead of
+/// CGBitmapContextCreateImage) because the blitters write to the bitmap
+/// directly, behind Core Graphics' copy-on-write. Opaque, so Core Animation
+/// composites it without blending.
+static CGImageRef copyScreenImage(RenderContext *rc) {
+    void *data = CGBitmapContextGetData(rc->ctx);
+    size_t bpr = CGBitmapContextGetBytesPerRow(rc->ctx);
+    if (!data || CGBitmapContextGetBitsPerPixel(rc->ctx) != 32) return CGBitmapContextCreateImage(rc->ctx);
+    CFDataRef pixels = CFDataCreate(NULL, data, (CFIndex)(bpr * (size_t)rc->height));
+    if (!pixels) return NULL;
+    CGDataProviderRef provider = CGDataProviderCreateWithCFData(pixels);
+    CFRelease(pixels);
+    CGImageRef image = CGImageCreate(rc->width, rc->height, 8, 32, bpr, getColorSpace(),
+                                     kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little,
+                                     provider, NULL, false, kCGRenderingIntentDefault);
+    CGDataProviderRelease(provider);
+    return image;
+}
+
 // ============================================================
 // Context management
 // ============================================================
@@ -268,8 +476,11 @@ static RenderContext *createRenderContext(int width, int height) {
 
     rc->fontSize = 14.0;
     rc->fontStyle = 0;
-    rc->font = CTFontCreateWithName(CFSTR("Helvetica"), rc->fontSize, NULL);
+    rc->font = (CTFontRef)CFRetain(sharedFont(0, 0, 0));
     rc->ownsPixels = 1;
+    rc->argb = 0xFF000000;
+    rc->clipW = width;
+    rc->clipH = height;
 
     track_rc(rc);
     native_heap_add(width * height * 4);
@@ -373,8 +584,8 @@ static s32 n_flushToScreen(Runtime *runtime, JClass *clazz) {
     s64 handle = env->localvar_getLong_2slot(runtime->localvar, 0);
     RenderContext *rc = rc_acquire(handle);
     if (rc && g_flush_callback) {
-        CGImageRef image = CGBitmapContextCreateImage(rc->ctx);
-        g_flush_callback(image, rc->width, rc->height);
+        CGImageRef image = copyScreenImage(rc);
+        if (image) g_flush_callback(image, rc->width, rc->height);
     }
     rc_release(rc);
     return RUNTIME_STATUS_NORMAL;
@@ -387,7 +598,10 @@ static s32 n_setColor(Runtime *runtime, JClass *clazz) {
     s64 handle = env->localvar_getLong_2slot(runtime->localvar, 0);
     s32 argb = env->localvar_getInt(runtime->localvar, 2);
     RenderContext *rc = rc_acquire(handle);
-    if (rc) setColorFromARGB(rc->ctx, argb);
+    if (rc) {
+        rc->argb = argb;
+        setColorFromARGB(rc->ctx, argb);
+    }
     rc_release(rc);
     return RUNTIME_STATUS_NORMAL;
 }
@@ -406,7 +620,12 @@ static s32 n_setClip(Runtime *runtime, JClass *clazz) {
         }
         CGContextSaveGState(rc->ctx);
         rc->clipSaved = 1;
-        CGContextClipToRect(rc->ctx, CGRectMake(x, y, w, h));
+        rc->clipX = x; rc->clipY = y;
+        rc->clipW = w > 0 ? w : 0; rc->clipH = h > 0 ? h : 0;
+        CGContextClipToRect(rc->ctx, CGRectMake(x, y, rc->clipW, rc->clipH));
+        // RestoreGState above also reverted the colour and dash: set them again
+        setColorFromARGB(rc->ctx, rc->argb);
+        applyDash(rc->ctx, rc->dashed);
     }
     rc_release(rc);
     return RUNTIME_STATUS_NORMAL;
@@ -418,12 +637,8 @@ static s32 n_setStrokeStyle(Runtime *runtime, JClass *clazz) {
     s32 style = env->localvar_getInt(runtime->localvar, 2);
     RenderContext *rc = rc_acquire(handle);
     if (rc) {
-        if (style == 1) {
-            CGFloat dash[] = {2.0, 2.0};
-            CGContextSetLineDash(rc->ctx, 0, dash, 2);
-        } else {
-            CGContextSetLineDash(rc->ctx, 0, NULL, 0);
-        }
+        rc->dashed = style == 1;
+        applyDash(rc->ctx, rc->dashed);
     }
     rc_release(rc);
     return RUNTIME_STATUS_NORMAL;
@@ -587,32 +802,68 @@ static s32 n_setFont(Runtime *runtime, JClass *clazz) {
     s32 size = env->localvar_getInt(runtime->localvar, 4);
     RenderContext *rc = rc_acquire(handle);
     if (rc) {
-        CGFloat ptSize;
-        switch (size) {
-            case 8:  ptSize = 10.0; break;
-            case 0:  ptSize = 14.0; break;
-            case 16: ptSize = 18.0; break;
-            default: ptSize = 14.0; break;
+        CTFontRef newFont = sharedFont(face, style, size);
+        if (newFont != rc->font) {
+            CFRetain(newFont);
+            CTFontRef oldFont = __atomic_exchange_n(&rc->font, newFont, __ATOMIC_ACQ_REL);
+            if (oldFont) CFRelease(oldFont);
         }
-
-        CFStringRef fontName;
-        if (style & 1) {
-            if (style & 2) fontName = CFSTR("Helvetica-BoldOblique");
-            else fontName = CFSTR("Helvetica-Bold");
-        } else if (style & 2) {
-            fontName = CFSTR("Helvetica-Oblique");
-        } else {
-            if (face == 32) fontName = CFSTR("Courier");
-            else fontName = CFSTR("Helvetica");
-        }
-
-        CTFontRef newFont = CTFontCreateWithName(fontName, ptSize, NULL);
-        CTFontRef oldFont = __atomic_exchange_n(&rc->font, newFont, __ATOMIC_ACQ_REL);
-        rc->fontSize = ptSize;
+        rc->fontSize = CTFontGetSize(newFont);
         rc->fontStyle = style;
-        if (oldFont) CFRelease(oldFont);
     }
     rc_release(rc);
+    return RUNTIME_STATUS_NORMAL;
+}
+
+// --- Font metrics without a context (Font.getHeight / charWidth / stringWidth)
+
+static s32 n_fontHeight(Runtime *runtime, JClass *clazz) {
+    JniEnv *env = runtime->jnienv;
+    CTFontRef f = sharedFont(env->localvar_getInt(runtime->localvar, 0),
+                             env->localvar_getInt(runtime->localvar, 1),
+                             env->localvar_getInt(runtime->localvar, 2));
+    env->push_int(runtime->stack, (s32)ceil(CTFontGetAscent(f) + CTFontGetDescent(f)));
+    return RUNTIME_STATUS_NORMAL;
+}
+
+static s32 n_fontAscent(Runtime *runtime, JClass *clazz) {
+    JniEnv *env = runtime->jnienv;
+    CTFontRef f = sharedFont(env->localvar_getInt(runtime->localvar, 0),
+                             env->localvar_getInt(runtime->localvar, 1),
+                             env->localvar_getInt(runtime->localvar, 2));
+    env->push_int(runtime->stack, (s32)ceil(CTFontGetAscent(f)));
+    return RUNTIME_STATUS_NORMAL;
+}
+
+/// Advance of one character in 1/64 pixel.
+static s32 n_charWidth64(Runtime *runtime, JClass *clazz) {
+    JniEnv *env = runtime->jnienv;
+    CTFontRef f = sharedFont(env->localvar_getInt(runtime->localvar, 0),
+                             env->localvar_getInt(runtime->localvar, 1),
+                             env->localvar_getInt(runtime->localvar, 2));
+    UniChar ch = (UniChar)env->localvar_getInt(runtime->localvar, 3);
+    CFStringRef str = CFStringCreateWithCharacters(NULL, &ch, 1);
+    double w = str ? measureText(f, str) : 0;
+    if (str) CFRelease(str);
+    env->push_int(runtime->stack, (s32)lround(w * 64.0));
+    return RUNTIME_STATUS_NORMAL;
+}
+
+/// Width of a whole string in pixels (for text outside the cached range).
+static s32 n_stringWidthFont(Runtime *runtime, JClass *clazz) {
+    JniEnv *env = runtime->jnienv;
+    CTFontRef f = sharedFont(env->localvar_getInt(runtime->localvar, 0),
+                             env->localvar_getInt(runtime->localvar, 1),
+                             env->localvar_getInt(runtime->localvar, 2));
+    Instance *jstr = env->localvar_getRefer(runtime->localvar, 3);
+    if (!jstr) { env->push_int(runtime->stack, 0); return RUNTIME_STATUS_NORMAL; }
+    Utf8String *ustr = utf8_create();
+    env->jstring_2_utf8(jstr, ustr, runtime);
+    CFStringRef str = CFStringCreateWithCString(NULL, utf8_cstr(ustr), kCFStringEncodingUTF8);
+    utf8_destroy(ustr);
+    double w = str ? measureText(f, str) : 0;
+    if (str) CFRelease(str);
+    env->push_int(runtime->stack, (s32)lround(w));
     return RUNTIME_STATUS_NORMAL;
 }
 
@@ -633,10 +884,7 @@ static s32 n_drawString(Runtime *runtime, JClass *clazz) {
     utf8_destroy(ustr);
     if (!str) { rc_release(rc); return RUNTIME_STATUS_NORMAL; }
 
-    CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(NULL, 3,
-        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFDictionarySetValue(attrs, kCTFontAttributeName, rc->font);
-    CFDictionarySetValue(attrs, kCTForegroundColorFromContextAttributeName, kCFBooleanTrue);
+    CFDictionaryRef attrs = textAttributes(rc->font, 1);
 
     CFAttributedStringRef attrStr = CFAttributedStringCreate(NULL, str, attrs);
     CTLineRef line = CTLineCreateWithAttributedString(attrStr);
@@ -681,15 +929,10 @@ static s32 n_getStringWidth(Runtime *runtime, JClass *clazz) {
     utf8_destroy(ustr);
     if (!str) { rc_release(rc); env->push_int(runtime->stack, 0); return RUNTIME_STATUS_NORMAL; }
 
-    CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(NULL, 1,
-        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFDictionarySetValue(attrs, kCTFontAttributeName, rc->font);
-    CFAttributedStringRef attrStr = CFAttributedStringCreate(NULL, str, attrs);
-    CTLineRef line = CTLineCreateWithAttributedString(attrStr);
-    double w = CTLineGetTypographicBounds(line, NULL, NULL, NULL);
-    CFRelease(line); CFRelease(attrStr); CFRelease(attrs); CFRelease(str);
+    double w = measureText(rc->font, str);
+    CFRelease(str);
     rc_release(rc);
-    env->push_int(runtime->stack, (s32)ceil(w));
+    env->push_int(runtime->stack, (s32)lround(w));
     return RUNTIME_STATUS_NORMAL;
 }
 
@@ -777,8 +1020,11 @@ static s32 n_getImageContext(Runtime *runtime, JClass *clazz) {
         rc->width = img->width;
         rc->height = img->height;
         rc->fontSize = 14.0;
-        rc->font = CTFontCreateWithName(CFSTR("Helvetica"), 14.0, NULL);
+        rc->font = (CTFontRef)CFRetain(sharedFont(0, 0, 0));
         rc->ownsPixels = 0; // pixels owned by the RenderImage, not this wrapper
+        rc->argb = 0xFF000000;
+        rc->clipW = img->width;
+        rc->clipH = img->height;
         track_rc(rc);
         img_release(img);
         env->push_long(runtime->stack, (s64)(intptr_t)rc);
@@ -806,6 +1052,12 @@ static s32 n_drawImage(Runtime *runtime, JClass *clazz) {
     if (anchor & 8) x -= imgW;
     if (anchor & 2) y -= imgH / 2;
     if (anchor & 32) y -= imgH;
+
+    if (blitRegion(rc, img, 0, 0, imgW, imgH, 0, x, y)) {
+        img_release(img);
+        rc_release(rc);
+        return RUNTIME_STATUS_NORMAL;
+    }
 
     CGImageRef cgImage = CGBitmapContextCreateImage(img->ctx);
     if (cgImage) {
@@ -861,6 +1113,12 @@ static s32 n_drawRegion(Runtime *runtime, JClass *clazz) {
     if (anchor & 8) xDst -= outW;
     if (anchor & 2) yDst -= outH / 2;
     if (anchor & 32) yDst -= outH;
+
+    if (blitRegion(rc, img, xSrc, ySrc, wSrc, hSrc, transform, xDst, yDst)) {
+        img_release(img);
+        rc_release(rc);
+        return RUNTIME_STATUS_NORMAL;
+    }
 
     CGImageRef fullImage = CGBitmapContextCreateImage(ictx);
     if (!fullImage) { img_release(img); rc_release(rc); return RUNTIME_STATUS_NORMAL; }
@@ -943,6 +1201,10 @@ static s32 n_drawRGB(Runtime *runtime, JClass *clazz) {
 
     s32 arrLen = arr->arr_length;
     s32 *srcData = (s32 *)arr->arr_body;
+    if (blitRGB(rc, srcData, arrLen, offset, scanlength, x, y, w, h, processAlpha)) {
+        rc_release(rc);
+        return RUNTIME_STATUS_NORMAL;
+    }
     CGColorSpaceRef cs = getColorSpace();
     CGContextRef tmpCtx = CGBitmapContextCreate(NULL, w, h, 8, w * 4, cs,
         kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
@@ -1007,16 +1269,30 @@ static s32 n_getImageRGB(Runtime *runtime, JClass *clazz) {
     s32 *dstData = (s32 *)arr->arr_body;
     uint8_t *srcData = (uint8_t *)CGBitmapContextGetData(img->ctx);
     int imgW = img->width;
+    s32 arrLen = arr->arr_length;
+    if (!srcData || x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > imgW || y + h > img->height) {
+        img_release(img);
+        return RUNTIME_STATUS_NORMAL;
+    }
+    size_t srcStride = CGBitmapContextGetBytesPerRow(img->ctx);
 
     for (int row = 0; row < h; row++) {
         for (int col = 0; col < w; col++) {
-            int srcIdx = ((y + row) * imgW + (x + col)) * 4;
+            int64_t dstIdx = (int64_t)offset + (int64_t)row * scanlength + col;
+            if (dstIdx < 0 || dstIdx >= arrLen) continue;
+            size_t srcIdx = (size_t)(y + row) * srcStride + (size_t)(x + col) * 4;
             uint8_t b = srcData[srcIdx + 0];
             uint8_t g = srcData[srcIdx + 1];
             uint8_t r = srcData[srcIdx + 2];
             uint8_t a = srcData[srcIdx + 3];
+            // Stored premultiplied; getRGB returns straight (non-premultiplied) ARGB
+            if (a > 0 && a < 255) {
+                r = (uint8_t)((r * 255 + a / 2) / a);
+                g = (uint8_t)((g * 255 + a / 2) / a);
+                b = (uint8_t)((b * 255 + a / 2) / a);
+            }
             s32 argb = (a << 24) | (r << 16) | (g << 8) | b;
-            dstData[offset + row * scanlength + col] = argb;
+            dstData[dstIdx] = argb;
         }
     }
     img_release(img);
@@ -1194,6 +1470,10 @@ static java_native_method j2me_render_methods[] = {
     {CLS, "getStringWidth",   "(JLjava/lang/String;)I",                  n_getStringWidth},
     {CLS, "getFontHeight",    "(J)I",                                    n_getFontHeight},
     {CLS, "getFontAscent",    "(J)I",                                    n_getFontAscent},
+    {CLS, "fontHeight",       "(III)I",                                  n_fontHeight},
+    {CLS, "fontAscent",       "(III)I",                                  n_fontAscent},
+    {CLS, "charWidth64",      "(IIII)I",                                 n_charWidth64},
+    {CLS, "stringWidthFont",  "(IIILjava/lang/String;)I",                n_stringWidthFont},
 
     // Image
     {CLS, "createMutableImage",  "(II)J",                                n_createMutableImage},

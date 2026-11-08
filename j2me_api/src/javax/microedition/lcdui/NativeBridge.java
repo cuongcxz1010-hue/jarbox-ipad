@@ -31,6 +31,12 @@ public class NativeBridge {
     public static native int getStringWidth(long ctx, String str);
     public static native int getFontHeight(long ctx);
     public static native int getFontAscent(long ctx);
+    /** Font metrics without a context (face, style, size as in javax.microedition.lcdui.Font). */
+    public static native int fontHeight(int face, int style, int size);
+    public static native int fontAscent(int face, int style, int size);
+    /** Advance of one character in 1/64 pixel. */
+    public static native int charWidth64(int face, int style, int size, int ch);
+    public static native int stringWidthFont(int face, int style, int size, String str);
 
     // Image
     public static native long createMutableImage(int w, int h);

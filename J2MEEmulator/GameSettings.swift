@@ -8,6 +8,21 @@
 
 import Foundation
 
+/// How the game picture fills its area.
+enum ScaleMode: String, CaseIterable {
+    case fit        // as large as possible, proportions kept
+    case integer    // whole multiples only (2×, 3×…): sharpest pixels
+    case stretch    // fill the area
+
+    var title: String {
+        switch self {
+        case .fit:     return "Vừa khít (giữ tỉ lệ)"
+        case .integer: return "Phóng số nguyên (nét nhất)"
+        case .stretch: return "Kéo giãn đầy màn hình"
+        }
+    }
+}
+
 /// Screen orientation for a game: follow the device, or stay landscape / portrait.
 enum GameOrientation: String {
     case auto, landscape, portrait
@@ -79,8 +94,16 @@ struct GameSettings {
 
     /// Stretch the game picture to fill the screen instead of keeping its proportions.
     var stretchToFill: Bool {
-        get { bool("scaleFill_", false) }
-        nonmutating set { store(newValue, "scaleFill_") }
+        get { scaleMode == .stretch }
+        nonmutating set { scaleMode = newValue ? .stretch : .fit }
+    }
+
+    var scaleMode: ScaleMode {
+        get {
+            if let raw = defaults.string(forKey: "scaleMode_" + id), let mode = ScaleMode(rawValue: raw) { return mode }
+            return bool("scaleFill_", false) ? .stretch : .fit
+        }
+        nonmutating set { store(newValue.rawValue, "scaleMode_") }
     }
 
     /// Smooth (bilinear) scaling instead of sharp pixels.
@@ -162,7 +185,9 @@ struct GameSettings {
         ("320×240 (ngang)", 320, 240),
         ("400×240 (ngang)", 400, 240),
         ("480×320 (ngang)", 480, 320),
+        ("480×360 (ngang, vừa iPad)", 480, 360),
         ("640×360 (ngang)", 640, 360),
+        ("640×480 (ngang, vừa iPad)", 640, 480),
         ("800×480 (ngang)", 800, 480),
         // Classic phone sizes (portrait / square)
         ("101×80", 101, 80),
