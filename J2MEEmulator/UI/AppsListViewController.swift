@@ -7,6 +7,7 @@
 //  launching games, settings sheets, crash / resume prompts and logs.
 //
 
+import Combine
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers

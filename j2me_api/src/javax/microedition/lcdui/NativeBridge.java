@@ -58,6 +58,8 @@ public class NativeBridge {
 
     // Input
     public static native int[] pollInputEvent();
+    /** True when an input event is waiting (cheap; no allocation). */
+    public static native boolean hasInput();
 
     // Lifecycle — check if native side requested MIDlet stop
     public static native boolean isStopRequested();

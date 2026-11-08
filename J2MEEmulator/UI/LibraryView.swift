@@ -8,6 +8,7 @@
 //  + to add .jar / .jad files; search and sort.
 //
 
+import Combine
 import SwiftUI
 import UIKit
 

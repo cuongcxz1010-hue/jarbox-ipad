@@ -115,6 +115,14 @@ static s32 n_pollInputEvent(Runtime *runtime, JClass *clazz) {
     return RUNTIME_STATUS_NORMAL;
 }
 
+// Native method: NativeBridge.hasInput() → boolean (an event is waiting)
+static s32 n_hasInput(Runtime *runtime, JClass *clazz) {
+    int rp = atomic_load_explicit(&g_read_pos, memory_order_relaxed);
+    int wp = atomic_load_explicit(&g_write_pos, memory_order_acquire);
+    push_int(runtime->stack, rp != wp ? 1 : 0);
+    return RUNTIME_STATUS_NORMAL;
+}
+
 // ============================================================
 // Native method: NativeBridge.isStopRequested() → boolean
 // ============================================================
@@ -143,6 +151,7 @@ void j2me_input_reset(void) {
 static java_native_method j2me_input_methods[] = {
     {CLS, "pollInputEvent", "()[I", n_pollInputEvent},
     {CLS, "isStopRequested", "()Z", n_isStopRequested},
+    {CLS, "hasInput", "()Z", n_hasInput},
 };
 
 #undef CLS

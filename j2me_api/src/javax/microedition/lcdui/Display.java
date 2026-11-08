@@ -206,10 +206,16 @@ public class Display {
                 }
             }
 
-            // Sleep in short intervals so we react quickly to destroyRequested
+            // Wait for work: wake up as soon as a key / touch arrives or the
+            // game asks for a repaint (checked every 2 ms, at most ~16 ms),
+            // instead of always sleeping 16 ms — keys and frames come sooner.
             try {
-                for (int i = 0; i < 4 && !MIDlet.isDestroyRequested(); i++) {
-                    Thread.sleep(4);
+                Thread.sleep(1);
+                for (int i = 0; i < 8 && !MIDlet.isDestroyRequested(); i++) {
+                    if (NativeBridge.hasInput()) break;
+                    Displayable shown = current;
+                    if (shown instanceof Canvas && ((Canvas) shown).repaintPending) break;
+                    Thread.sleep(2);
                 }
             } catch (InterruptedException e) {
                 break;

@@ -284,13 +284,15 @@ final class VirtualKeyboardView: UIView {
             let now = key(at: t.location(in: self))
             let before = touchKeys[tid]
             guard now != before else { continue }
-            if let before { release(before) }
+            // Press the new key before releasing the old one, so a direction
+            // shared by both (↑ → ↗) stays held without a release in between
             if let now {
                 touchKeys[tid] = now
                 press(now)
             } else {
                 touchKeys[tid] = nil
             }
+            if let before { release(before) }
         }
     }
 
