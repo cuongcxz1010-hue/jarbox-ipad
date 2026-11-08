@@ -1,6 +1,28 @@
 #include "jvm.h"
 #include "jvm_util.h"
 #include "jit.h"
+
+// Java narrowing conversions: NaN becomes 0 and out-of-range values saturate.
+// ARM64 conversion instructions do exactly this; x86 does not.
+#if defined(__aarch64__)
+#define java_to_int(v) ((s32) (v))
+#define java_to_long(v) ((s64) (v))
+#else
+static inline s32 java_to_int(f64 v) {
+    if (v != v) return 0;
+    if (v >= 2147483647.0) return 2147483647;
+    if (v <= -2147483648.0) return (s32) 0x80000000;
+    return (s32) v;
+}
+
+static inline s64 java_to_long(f64 v) {
+    if (v != v) return 0;
+    if (v >= 9223372036854775807.0) return 0x7FFFFFFFFFFFFFFFLL;
+    if (v <= -9223372036854775808.0) return (s64) 0x8000000000000000ULL;
+    return (s64) v;
+}
+#endif
+
 #include "garbage.h"
 
 
@@ -2157,7 +2179,7 @@ s32 execute_method_impl(MethodInfo *method, Runtime *pruntime) {
                             invoke_deepth(runtime);
                             jvm_printf("f2i: %f\n", (sp - 1)->fvalue);
 #endif
-                            (sp - 1)->ivalue = (s32) (sp - 1)->fvalue;
+                            (sp - 1)->ivalue = java_to_int((sp - 1)->fvalue);
                             runtime->pc++;
 
                             break;
@@ -2170,7 +2192,7 @@ s32 execute_method_impl(MethodInfo *method, Runtime *pruntime) {
                             jvm_printf("f2l: %f\n", (sp - 1)->fvalue);
 #endif
                             ++sp;
-                            (sp - 2)->lvalue = (s64) (sp - 2)->fvalue;
+                            (sp - 2)->lvalue = java_to_long((sp - 2)->fvalue);
                             runtime->pc++;
 
                             break;
@@ -2196,7 +2218,7 @@ s32 execute_method_impl(MethodInfo *method, Runtime *pruntime) {
                             jvm_printf("d2i: %lf\n", (sp - 2)->dvalue);
 #endif
                             --sp;
-                            (sp - 1)->ivalue = (s32) (sp - 1)->dvalue;
+                            (sp - 1)->ivalue = java_to_int((sp - 1)->dvalue);
                             runtime->pc++;
 
                             break;
@@ -2208,7 +2230,7 @@ s32 execute_method_impl(MethodInfo *method, Runtime *pruntime) {
                             invoke_deepth(runtime);
                             jvm_printf("d2l: %lf\n", (sp - 2)->dvalue);
 #endif
-                            (sp - 2)->lvalue = (s64) (sp - 2)->dvalue;
+                            (sp - 2)->lvalue = java_to_long((sp - 2)->dvalue);
                             runtime->pc++;
 
                             break;
