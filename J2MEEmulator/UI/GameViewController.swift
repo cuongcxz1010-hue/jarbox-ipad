@@ -49,8 +49,11 @@ class GameViewController: UIViewController {
     private var alertTimeoutWork: DispatchWorkItem?
 
     // Idle tools
-    private var idleOverlay: UIView?
+    private var idleOverlay: IdleOverlayView?
     private var savedBrightness: CGFloat?
+    private var idleStartedAt = Date()
+    private var idleStatusTimer: Timer?
+    private var thermalObserver: NSObjectProtocol?
     private var autoPressTimer: Timer?
 
     // Launch-failure detection / restart
@@ -97,6 +100,8 @@ class GameViewController: UIViewController {
         setGlobalEmulatorView(nil)
         alertTimeoutWork?.cancel()
         autoPressTimer?.invalidate()
+        idleStatusTimer?.invalidate()
+        if let thermalObserver { NotificationCenter.default.removeObserver(thermalObserver) }
     }
 
     // MARK: - Appearance & orientation
@@ -187,6 +192,7 @@ class GameViewController: UIViewController {
         // Mirror game frames to the glow layer
         emulatorView.onFrame = { [weak self] cgImage in
             self?.glowContentView.layer.contents = cgImage
+            self?.idleOverlay?.setPreview(cgImage)
         }
 
         // System events
@@ -195,6 +201,10 @@ class GameViewController: UIViewController {
         nc.addObserver(self, selector: #selector(keyboardWillHide), name: UIResponder.keyboardWillHideNotification, object: nil)
         nc.addObserver(self, selector: #selector(appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         nc.addObserver(self, selector: #selector(appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        // Device getting hot -> lower the frame rate (posted on any thread; handled on main)
+        thermalObserver = nc.addObserver(forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyFpsOverride() }
+        }
 
         // Native callbacks
         setGlobalEmulatorView(emulatorView)
@@ -496,9 +506,23 @@ class GameViewController: UIViewController {
     }
 
     private func idleMenu() -> UIMenu {
-        let idle = UIAction(title: "Chế độ treo (màn tối, khóa chạm)", image: UIImage(systemName: "moon.zzz")) { [weak self] _ in
-            self?.enterIdleMode()
+        let idle = UIAction(title: "Treo máy ổn định (khuyên dùng)",
+                            subtitle: "Màn tối, khóa chạm, giảm FPS, giữ máy luôn mở",
+                            image: UIImage(systemName: "moon.zzz.fill")) { [weak self] _ in
+            self?.startStableIdle()
         }
+        let guide = UIAction(title: "Hướng dẫn treo chắc chắn", subtitle: "Bật Truy cập được hướng dẫn",
+                             image: UIImage(systemName: "lock.iphone")) { [weak self] _ in
+            self?.showGuidedAccessGuide()
+        }
+        let currentIdleFps = settings.idleFps
+        let idleFpsMenu = UIMenu(title: "FPS khi treo", image: UIImage(systemName: "speedometer"),
+                                 children: GameSettings.idleFpsOptions.map { opt in
+            UIAction(title: opt.label, state: opt.value == currentIdleFps ? .on : .off) { [weak self] _ in
+                self?.settings.idleFps = opt.value
+                self?.applyFpsOverride()
+            }
+        })
 
         let running = autoPressTimer != nil
         let autoToggle = UIAction(title: running ? "Dừng tự động bấm" : "Bắt đầu tự động bấm",
@@ -539,7 +563,7 @@ class GameViewController: UIViewController {
         }
 
         return UIMenu(title: "Treo game", image: UIImage(systemName: "hourglass"),
-                      children: [idle, autoToggle, keyMenu, intervalMenu, keepOn, background])
+                      children: [idle, guide, idleFpsMenu, autoToggle, keyMenu, intervalMenu, keepOn, background])
     }
 
     private func promptProfileName(title: String, initial: String, completion: @escaping (String) -> Void) {
@@ -696,40 +720,111 @@ class GameViewController: UIViewController {
         view.setNeedsLayout()
     }
 
-    // MARK: - Idle tools: idle mode, auto-press
+    // MARK: - Stable idle mode (the most reliable way iOS allows)
 
+    /// Keeps the game in the foreground with auto-lock off, the display dimmed,
+    /// touches blocked and a low frame rate; shows status and a live preview.
     private func enterIdleMode() {
         guard idleOverlay == nil else { return }
         keyInputView.resignFirstResponder()
-        let overlay = UIView(frame: view.bounds)
-        overlay.backgroundColor = UIColor(white: 0, alpha: 0.92)
-        let label = UILabel()
-        label.text = "Đang treo game\n\nGame vẫn chạy; màn hình được làm tối và khóa chạm để tiết kiệm pin.\n\nChạm 2 lần để quay lại."
-        label.textColor = UIColor(white: 1, alpha: 0.75)
-        label.font = .systemFont(ofSize: 17, weight: .medium)
-        label.numberOfLines = 0
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        overlay.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
-            label.widthAnchor.constraint(lessThanOrEqualTo: overlay.widthAnchor, multiplier: 0.8),
-        ])
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(exitIdleMode))
-        doubleTap.numberOfTapsRequired = 2
-        overlay.addGestureRecognizer(doubleTap)
+        let overlay = IdleOverlayView(frame: view.bounds)
+        overlay.onExit = { [weak self] in self?.exitIdleMode() }
+        if let image = emulatorView.currentImage { overlay.setPreview(image) }
         view.addSubview(overlay)
         idleOverlay = overlay
+        idleStartedAt = Date()
         UIApplication.shared.isIdleTimerDisabled = true
+        UIDevice.current.isBatteryMonitoringEnabled = true
         dimScreen(true)
+        applyFpsOverride()
+        updateIdleStatus()
+        let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateIdleStatus() }
+        }
+        timer.tolerance = 0.3
+        idleStatusTimer = timer
+        print("[Swift] Stable idle mode ON (fps cap \(currentFpsCap()))")
     }
 
     @objc private func exitIdleMode() {
-        idleOverlay?.removeFromSuperview()
+        guard let overlay = idleOverlay else { return }
+        overlay.removeFromSuperview()
         idleOverlay = nil
+        idleStatusTimer?.invalidate()
+        idleStatusTimer = nil
+        UIDevice.current.isBatteryMonitoringEnabled = false
         dimScreen(false)
+        applyFpsOverride()
         UIApplication.shared.isIdleTimerDisabled = settings.keepScreenOn && SessionKeeper.shared.gameRunning
+        print("[Swift] Stable idle mode OFF after \(Int(Date().timeIntervalSince(idleStartedAt))) s")
+    }
+
+    private func updateIdleStatus() {
+        guard let overlay = idleOverlay else { return }
+        let device = UIDevice.current
+        overlay.update(IdleOverlayView.Status(
+            elapsed: Date().timeIntervalSince(idleStartedAt),
+            batteryLevel: device.batteryLevel,
+            batteryState: device.batteryState,
+            fps: currentFpsCap(),
+            thermal: ProcessInfo.processInfo.thermalState,
+            autoPress: autoPressTimer != nil ? autoPressDescription() : nil,
+            guidedAccess: UIAccessibility.isGuidedAccessEnabled))
+    }
+
+    /// Frame-rate cap now (0 = unlimited): idle mode and device temperature
+    /// lower it; never above the game's own setting.
+    private func currentFpsCap() -> Int {
+        var cap: Int?
+        if idleOverlay != nil && settings.idleFps > 0 { cap = settings.idleFps }
+        switch ProcessInfo.processInfo.thermalState {
+        case .serious:  cap = min(cap ?? 15, 15)
+        case .critical: cap = min(cap ?? 8, 8)
+        default: break
+        }
+        if let c = cap, fpsLimit > 0 { cap = min(c, fpsLimit) }
+        return cap ?? fpsLimit
+    }
+
+    private func applyFpsOverride() {
+        let cap = currentFpsCap()
+        j2me_set_fps_override(Int32(cap == fpsLimit ? -1 : cap))
+    }
+
+    /// Menu → Treo máy ổn định: first time without Guided Access, offer the guide.
+    private func startStableIdle() {
+        let tipKey = "guidedAccessTipShown"
+        if UIAccessibility.isGuidedAccessEnabled || UserDefaults.standard.bool(forKey: tipKey) {
+            enterIdleMode()
+            return
+        }
+        UserDefaults.standard.set(true, forKey: tipKey)
+        showGuidedAccessGuide()
+    }
+
+    private func showGuidedAccessGuide() {
+        let status = UIAccessibility.isGuidedAccessEnabled ? "đang bật ✓" : "chưa bật"
+        let alert = UIAlertController(title: "Treo chắc chắn hơn", message: """
+            "Truy cập được hướng dẫn" của iOS giữ iPad luôn ở trong game: không thoát nhầm ra ngoài, không bị khóa màn hình.
+
+            Cài một lần:
+            1. Cài đặt → Trợ năng → Truy cập được hướng dẫn → Bật.
+            2. Cài đặt mật mã → đặt mật mã.
+            3. Tự động khóa màn hình → Không bao giờ.
+
+            Mỗi lần treo:
+            4. Trong game: Menu → Treo game → Treo máy ổn định.
+            5. Bấm nhanh 3 lần nút nguồn (máy có nút Home: bấm 3 lần nút Home) → Bắt đầu.
+            Thoát: bấm 3 lần nút đó → nhập mật mã → Kết thúc.
+
+            Nên: cắm sạc, bật Không làm phiền, để máy chỗ thoáng mát.
+            Trạng thái hiện tại: \(status).
+            """, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Đóng", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Treo ngay", style: .default) { [weak self] _ in
+            self?.enterIdleMode()
+        })
+        present(alert, animated: true)
     }
 
     private func dimScreen(_ dim: Bool) {
@@ -807,7 +902,7 @@ class GameViewController: UIViewController {
 
             Đây không phải tính năng chắc chắn: iOS vẫn có thể dừng app khi thiếu bộ nhớ, khi có cuộc gọi hoặc sau thời gian dài; tốn pin hơn; App Store không cho phép cách này (bản cài qua Sideloadly thì dùng được).
 
-            Cách treo ổn định nhất: để game mở, bật "Giữ màn hình luôn sáng" và dùng Chế độ treo.
+            Cách treo ổn định nhất: để game mở, bật "Giữ màn hình luôn sáng" và dùng "Treo máy ổn định" (Menu → Treo game).
             """,
             preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Đã hiểu", style: .default))
@@ -837,7 +932,8 @@ class GameViewController: UIViewController {
     • Phím số 0–9, *, # như điện thoại; C = xóa/quay lại; Gọi; Tắt.
     • Có thể chạm thẳng vào màn hình game.
     • Ô tài khoản / mật khẩu / chat: chạm vào ô, bàn phím iPad tự hiện.
-    • Menu: gõ chữ, ẩn/hiện phím, kéo thả và đổi cỡ từng phím, hồ sơ phím, xoay màn hình, treo game, cài đặt.
+    • Menu: gõ chữ, ẩn/hiện phím, kéo thả và đổi cỡ từng phím, hồ sơ phím, xoay màn hình, cài đặt.
+    • Treo lâu: Menu → Treo game → Treo máy ổn định (màn tối, khóa chạm, giảm FPS).
     """
 
     private func showHelp() {
@@ -963,6 +1059,7 @@ class GameViewController: UIViewController {
         startedAt = Date()
         DiagnosticsLog.markGameRunning(appName)
         SessionKeeper.shared.gameStarted()
+        applyFpsOverride()
         UIApplication.shared.isIdleTimerDisabled = settings.keepScreenOn
         print("[Swift] Starting \(appName) (\(URL(fileURLWithPath: jarPath).lastPathComponent)), canvas \(canvasWidth)x\(canvasHeight)")
 

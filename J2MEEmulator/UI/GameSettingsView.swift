@@ -30,6 +30,7 @@ struct GameSettingsView: View {
     @State private var autoKey: Int32
     @State private var autoInterval: Int
     @State private var backgroundAudio: Bool
+    @State private var idleFps: Int
     @State private var fps: Int
     @State private var smooth3D: Bool
 
@@ -56,6 +57,7 @@ struct GameSettingsView: View {
         _autoKey = State(initialValue: settings.autoPressCode)
         _autoInterval = State(initialValue: settings.autoPressInterval)
         _backgroundAudio = State(initialValue: SessionKeeper.backgroundAudioEnabled)
+        _idleFps = State(initialValue: settings.idleFps)
         _fps = State(initialValue: settings.fpsLimit)
         _smooth3D = State(initialValue: settings.supersampling3D)
     }
@@ -156,6 +158,12 @@ struct GameSettingsView: View {
     private var idleSection: some View {
         Section {
             Toggle("Giữ màn hình luôn sáng", isOn: saving($keepScreenOn) { settings.keepScreenOn = $0 })
+            Picker("FPS khi treo", selection: saving($idleFps) { settings.idleFps = $0 }) {
+                ForEach(GameSettings.idleFpsOptions.indices, id: \.self) { i in
+                    let opt = GameSettings.idleFpsOptions[i]
+                    Text(opt.label).tag(opt.value)
+                }
+            }
             Picker("Tự động bấm phím", selection: saving($autoKey) { settings.autoPressCode = $0 }) {
                 ForEach(GameSettings.autoPressKeys.indices, id: \.self) { i in
                     let key = GameSettings.autoPressKeys[i]
@@ -174,8 +182,8 @@ struct GameSettingsView: View {
             Text("Treo game & chạy nền")
         } footer: {
             Text("""
-            Bật/tắt tự bấm trong Menu khi đang chơi. "Chế độ treo" (Menu) giảm độ sáng và khóa chạm để treo lâu.
-            Giới hạn của iOS: khi bạn thoát ra ngoài hoặc khóa máy, iOS chỉ cho app chạy thêm khoảng 30 giây rồi tạm dừng (game mất kết nối). "Giữ chạy nền (thử nghiệm)" dùng chế độ âm thanh nền để app tiếp tục chạy — có tác dụng với bản cài qua Sideloadly nhưng không được App Store cho phép, tốn pin hơn, và iOS vẫn có thể đóng app khi thiếu bộ nhớ hoặc có cuộc gọi. Cách chắc chắn nhất để treo: để game mở, bật "Giữ màn hình luôn sáng" và Chế độ treo.
+            Cách treo ổn định nhất: trong game bấm Menu → Treo game → Treo máy ổn định (giữ máy luôn mở, màn tối, khóa chạm, giảm FPS; tự giảm thêm khi máy nóng). Bật thêm "Truy cập được hướng dẫn" của iOS để iPad không thoát khỏi game. Bật/tắt tự bấm trong Menu khi đang chơi.
+            Giới hạn của iOS: khi bạn thoát ra ngoài hoặc khóa máy, iOS chỉ cho app chạy thêm khoảng 30 giây rồi tạm dừng (game mất kết nối). "Giữ chạy nền (thử nghiệm)" dùng chế độ âm thanh nền để app tiếp tục chạy — có tác dụng với bản cài qua Sideloadly nhưng không được App Store cho phép, tốn pin hơn, và iOS vẫn có thể đóng app khi thiếu bộ nhớ hoặc có cuộc gọi.
             """)
         }
     }

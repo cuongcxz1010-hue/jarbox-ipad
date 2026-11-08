@@ -68,6 +68,8 @@ public class NativeBridge {
     public static native void setAlertText(String text, int timeout);
     /** Text typed natively into TextBox / Form TextField item {@code index} since it was shown, or null. */
     public static native String takeTextResult(int index);
+    /** Frame-rate cap requested by the app at runtime: -1 = none, 0 = unlimited, n = n fps. */
+    public static native int getFpsOverride();
 
     // Audio — WAV/MP3 (AVAudioPlayer)
     public static native long audioCreatePlayer(byte[] data);

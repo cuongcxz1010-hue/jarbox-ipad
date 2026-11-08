@@ -121,6 +121,20 @@ struct GameSettings {
 
     static let autoPressIntervals: [Int] = [1, 2, 5, 10, 30, 60, 120, 300]
 
+    /// Frame rate while in stable idle mode (0 = keep the normal rate).
+    var idleFps: Int {
+        get { int("idleFps_", 10) }
+        nonmutating set { store(newValue, "idleFps_") }
+    }
+
+    static let idleFpsOptions: [(label: String, value: Int)] = [
+        ("5 FPS (mát máy nhất)", 5),
+        ("10 FPS (khuyên dùng)", 10),
+        ("15 FPS", 15),
+        ("20 FPS", 20),
+        ("Không giảm", 0),
+    ]
+
     /// Where the user dragged an on-screen key group, as a fraction of the
     /// safe area (0…1), separately for portrait and landscape. nil = default.
     func keyPosition(_ name: String, portrait: Bool) -> CGPoint? {

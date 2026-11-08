@@ -278,6 +278,20 @@ static s32 n_setAlertText(Runtime *runtime, JClass *clazz) {
     return RUNTIME_STATUS_NORMAL;
 }
 
+// --- Runtime FPS cap (idle mode, thermal throttling): -1 = none, 0 = unlimited, n = n fps ---
+
+static volatile int g_fps_override = -1;
+
+void j2me_set_fps_override(int fps) {
+    g_fps_override = fps;
+}
+
+static s32 n_getFpsOverride(Runtime *runtime, JClass *clazz) {
+    JniEnv *env = runtime->jnienv;
+    env->push_int(runtime->stack, g_fps_override);
+    return RUNTIME_STATUS_NORMAL;
+}
+
 // --- takeTextResult(index): text typed natively for item `index`, or null ---
 
 static s32 n_takeTextResult(Runtime *runtime, JClass *clazz) {
@@ -336,6 +350,7 @@ static java_native_method j2me_ui_methods[] = {
     {CLS, "setAlertText",     "(Ljava/lang/String;I)V",                          n_setAlertText},
     {CLS, "platformRequest",  "(Ljava/lang/String;)V",                           n_platformRequest},
     {CLS, "takeTextResult",   "(I)Ljava/lang/String;",                           n_takeTextResult},
+    {CLS, "getFpsOverride",   "()I",                                             n_getFpsOverride},
 };
 
 #undef CLS

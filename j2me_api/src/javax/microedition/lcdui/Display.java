@@ -135,9 +135,23 @@ public class Display {
     public void runEventLoop() {
         running = true;
         eventQueue.startProcessing();
+        final int baseFps = Canvas.getLimitFps();   // from the game settings
+        int appliedOverride = -1;
+        int tick = 0;
         System.out.println("[Display] Event loop started (" + screenWidth + "x" + screenHeight + ")");
 
         while (running && !MIDlet.isDestroyRequested()) {
+            // Runtime frame-rate cap from the app (idle mode / device too hot)
+            if ((++tick & 31) == 0) {
+                int override = NativeBridge.getFpsOverride();
+                if (override != appliedOverride) {
+                    appliedOverride = override;
+                    Canvas.setLimitFps(override >= 0 ? override : baseFps);
+                    System.out.println("[Display] FPS limit now " + Canvas.getLimitFps()
+                            + (override >= 0 ? " (app override)" : " (game setting)"));
+                }
+            }
+
             // 0. Check if native side requested stop (e.g. user pressed Back)
             if (NativeBridge.isStopRequested()) {
                 System.out.println("[Display] Native stop requested, exiting event loop");
