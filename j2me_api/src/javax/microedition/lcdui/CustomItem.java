@@ -53,6 +53,7 @@ public abstract class CustomItem extends Item {
 	}
 
 	protected final void invalidate() {
+		changed();
 	}
 
 	protected final void repaint() {
@@ -60,7 +61,7 @@ public abstract class CustomItem extends Item {
 	}
 
 	protected final void repaint(int x, int y, int width, int height) {
-		// Stub: no rendering in iOS port yet
+		changed();
 	}
 
 	protected boolean traverse(int dir, int viewportWidth, int viewportHeight, int[] visRect_inout) {
@@ -95,12 +96,20 @@ public abstract class CustomItem extends Item {
 	}
 
 	@Override
-	int getItemType() {
-		return 0; // Stub
-	}
-
-	@Override
-	String getItemText() {
-		return ""; // Stub
+	void writeContent(ScreenWriter out) {
+		int w = Math.max(getMinContentWidth(), getPrefContentWidth(-1));
+		int h = Math.max(getMinContentHeight(), getPrefContentHeight(w));
+		if (w <= 0) w = 1;
+		if (h <= 0) h = 1;
+		Image canvas = Image.createImage(w, h);
+		try {
+			paint(canvas.getGraphics(), w, h);
+		} catch (Throwable t) {
+			System.out.println("[CustomItem] paint: " + t);
+		}
+		out.field("kind", "custom");
+		out.image("image", canvas);
+		out.field("width", w);
+		out.field("height", h);
 	}
 }

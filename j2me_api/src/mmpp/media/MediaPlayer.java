@@ -34,9 +34,9 @@ public class MediaPlayer {
 	public void setMediaLocation(String location) {
 		try {
 			// Use Class.getResourceAsStream instead of ContextHolder (Android dep)
-			InputStream is = MediaPlayer.class.getResourceAsStream(location);
+			InputStream is = javax.microedition.util.GameResources.open(location);
 			if (is == null && !location.startsWith("/")) {
-				is = MediaPlayer.class.getResourceAsStream("/" + location);
+				is = javax.microedition.util.GameResources.open("/" + location);
 			}
 			if (is == null) {
 				System.out.println("mmpp.media.MediaPlayer: resource not found: " + location);

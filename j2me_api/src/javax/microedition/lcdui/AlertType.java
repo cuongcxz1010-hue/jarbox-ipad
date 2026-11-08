@@ -8,5 +8,10 @@ public class AlertType {
     public static final AlertType WARNING = new AlertType();
 
     protected AlertType() { }
-    public boolean playSound(Display display) { return false; }
+
+    public boolean playSound(Display display) {
+        if (display == null) throw new NullPointerException();
+        NativeBridge.vibrate(this == ERROR || this == ALARM ? 300 : 80);
+        return true;
+    }
 }

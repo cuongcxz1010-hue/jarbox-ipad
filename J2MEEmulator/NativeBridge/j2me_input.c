@@ -1,22 +1,21 @@
 //
-// j2me_input.c — Thread-safe input event bridge between iOS and miniJVM
+// j2me_input.c — Input event bridge between the platform and the JVM
 //
-// Uses a lock-free ring buffer for single-producer (iOS main thread)
-// single-consumer (JVM thread) communication.
+// A ring buffer filled by the platform and drained by the JVM's main thread.
+// The JVM thread sleeps on a condition variable while the queue is empty, so
+// an idle game uses no CPU and a key press is delivered immediately.
 //
 
 #include "j2me_input.h"
 #include "jvm_bridge.h"
 #include "jvm.h"
 #include "jvm_util.h"
+#include "tinycthread.h"
 #include <stdio.h>
 #include <stdatomic.h>
+#include <time.h>
 
-// ============================================================
-// Ring buffer
-// ============================================================
-
-#define INPUT_QUEUE_SIZE 256
+#define INPUT_QUEUE_SIZE 512
 #define INPUT_QUEUE_MASK (INPUT_QUEUE_SIZE - 1)
 
 typedef struct {
@@ -26,8 +25,25 @@ typedef struct {
 } InputEvent;
 
 static InputEvent g_queue[INPUT_QUEUE_SIZE];
-static atomic_int g_write_pos = 0;
-static atomic_int g_read_pos = 0;
+static int g_write_pos = 0;
+static int g_read_pos = 0;
+
+static mtx_t g_lock;
+static cnd_t g_ready;
+static atomic_int g_lock_ready = 0;
+
+static void ensure_lock(void) {
+    int state = atomic_load(&g_lock_ready);
+    if (state == 2) return;
+    int expected = 0;
+    if (atomic_compare_exchange_strong(&g_lock_ready, &expected, 1)) {
+        mtx_init(&g_lock, mtx_plain);
+        cnd_init(&g_ready);
+        atomic_store(&g_lock_ready, 2);
+    } else {
+        while (atomic_load(&g_lock_ready) != 2) { }
+    }
+}
 
 static int g_canvas_width = 240;
 static int g_canvas_height = 320;
@@ -38,127 +54,116 @@ void j2me_input_set_canvas_size(int width, int height) {
 }
 
 static void enqueue_event(int type, int x, int y, int keyCode) {
-    int wp = atomic_load_explicit(&g_write_pos, memory_order_relaxed);
-    int next_wp = (wp + 1) & INPUT_QUEUE_MASK;
-    int rp = atomic_load_explicit(&g_read_pos, memory_order_acquire);
-
-    if (next_wp == rp) {
-        // Queue full — drop event
-        return;
+    ensure_lock();
+    mtx_lock(&g_lock);
+    int next = (g_write_pos + 1) & INPUT_QUEUE_MASK;
+    if (next != g_read_pos) {
+        InputEvent *e = &g_queue[g_write_pos];
+        e->type = type;
+        e->x = x;
+        e->y = y;
+        e->keyCode = keyCode;
+        g_write_pos = next;
+        cnd_signal(&g_ready);
     }
-
-    g_queue[wp].type = type;
-    g_queue[wp].x = x;
-    g_queue[wp].y = y;
-    g_queue[wp].keyCode = keyCode;
-
-    atomic_store_explicit(&g_write_pos, next_wp, memory_order_release);
+    mtx_unlock(&g_lock);
 }
 
-static int dequeue_event(InputEvent *out) {
-    int rp = atomic_load_explicit(&g_read_pos, memory_order_relaxed);
-    int wp = atomic_load_explicit(&g_write_pos, memory_order_acquire);
+void j2me_input_post_touch(int type, int x, int y) { enqueue_event(type, x, y, 0); }
+void j2me_input_post_key(int type, int keyCode) { enqueue_event(type, 0, 0, keyCode); }
+void j2me_input_post_event(int type, int x, int y) { enqueue_event(type, x, y, 0); }
 
-    if (rp == wp) {
-        return 0; // Empty
-    }
+void j2me_input_wake(void) {
+    ensure_lock();
+    mtx_lock(&g_lock);
+    cnd_broadcast(&g_ready);
+    mtx_unlock(&g_lock);
+}
 
-    *out = g_queue[rp];
-    atomic_store_explicit(&g_read_pos, (rp + 1) & INPUT_QUEUE_MASK, memory_order_release);
+static int dequeue_locked(InputEvent *out) {
+    if (g_read_pos == g_write_pos) return 0;
+    *out = g_queue[g_read_pos];
+    g_read_pos = (g_read_pos + 1) & INPUT_QUEUE_MASK;
     return 1;
 }
 
-// ============================================================
-// Public API (called from Swift/main thread)
-// ============================================================
-
-void j2me_input_post_touch(int type, int x, int y) {
-    enqueue_event(type, x, y, 0);
-}
-
-void j2me_input_post_key(int type, int keyCode) {
-    enqueue_event(type, 0, 0, keyCode);
-}
-
-// ============================================================
-// Native method: NativeBridge.pollInputEvent() → int[] or null
-// Returns int[4]: {type, x, y, keyCode}
-// ============================================================
-
-static s32 n_pollInputEvent(Runtime *runtime, JClass *clazz) {
-    JniEnv *env = runtime->jnienv;
+// NativeBridge.waitInputEvent(timeoutMs) → {type, x, y, keyCode} or null
+static s32 n_waitInputEvent(Runtime *runtime, JClass *clazz) {
+    s32 timeoutMs = localvar_getInt(runtime->localvar, 0);
     InputEvent evt;
+    int got;
 
-    if (!dequeue_event(&evt)) {
-        env->push_ref(runtime->stack, NULL);
+    ensure_lock();
+    mtx_lock(&g_lock);
+    got = dequeue_locked(&evt);
+    mtx_unlock(&g_lock);
+
+    if (!got && !jvm_bridge_is_stop_requested()) {
+        // The thread is marked as blocked so the garbage collector does not wait for it
+        jthread_block_enter(runtime);
+        struct timespec until;
+        timespec_get(&until, TIME_UTC);
+        until.tv_sec += timeoutMs / 1000;
+        until.tv_nsec += (long)(timeoutMs % 1000) * 1000000L;
+        if (until.tv_nsec >= 1000000000L) { until.tv_nsec -= 1000000000L; until.tv_sec += 1; }
+
+        mtx_lock(&g_lock);
+        while (!(got = dequeue_locked(&evt)) && !jvm_bridge_is_stop_requested()) {
+            int r = cnd_timedwait(&g_ready, &g_lock, &until);
+            if (r != thrd_success) {
+                got = dequeue_locked(&evt);
+                break;
+            }
+        }
+        mtx_unlock(&g_lock);
+        jthread_block_exit(runtime);
+    }
+
+    if (!got) {
+        push_ref(runtime->stack, NULL);
         return RUNTIME_STATUS_NORMAL;
     }
 
-    // Create int[4] array
-    Utf8String *type_name = utf8_create_c("[I");
     Instance *arr = jarray_create_by_type_index(runtime, 4, DATATYPE_INT);
-    if (!arr) {
-        utf8_destroy(type_name);
-        env->push_ref(runtime->stack, NULL);
-        return RUNTIME_STATUS_NORMAL;
+    if (arr) {
+        s32 *body = (s32 *)arr->arr_body;
+        body[0] = evt.type;
+        body[1] = evt.x;
+        body[2] = evt.y;
+        body[3] = evt.keyCode;
     }
-    utf8_destroy(type_name);
-
-    // Fill array
-    s32 *body = (s32 *)arr->arr_body;
-    body[0] = evt.type;
-    body[1] = evt.x;
-    body[2] = evt.y;
-    body[3] = evt.keyCode;
-
-    env->push_ref(runtime->stack, arr);
+    push_ref(runtime->stack, arr);
     return RUNTIME_STATUS_NORMAL;
 }
 
-// Native method: NativeBridge.hasInput() → boolean (an event is waiting)
-static s32 n_hasInput(Runtime *runtime, JClass *clazz) {
-    int rp = atomic_load_explicit(&g_read_pos, memory_order_relaxed);
-    int wp = atomic_load_explicit(&g_write_pos, memory_order_acquire);
-    push_int(runtime->stack, rp != wp ? 1 : 0);
+static s32 n_wakeInput(Runtime *runtime, JClass *clazz) {
+    j2me_input_wake();
     return RUNTIME_STATUS_NORMAL;
 }
-
-// ============================================================
-// Native method: NativeBridge.isStopRequested() → boolean
-// ============================================================
 
 static s32 n_isStopRequested(Runtime *runtime, JClass *clazz) {
     push_int(runtime->stack, jvm_bridge_is_stop_requested() ? 1 : 0);
     return RUNTIME_STATUS_NORMAL;
 }
 
-// ============================================================
-// Reset (call between game sessions)
-// ============================================================
-
 void j2me_input_reset(void) {
-    atomic_store_explicit(&g_write_pos, 0, memory_order_relaxed);
-    atomic_store_explicit(&g_read_pos, 0, memory_order_relaxed);
-    printf("[J2ME Input] Ring buffer reset\n");
+    ensure_lock();
+    mtx_lock(&g_lock);
+    g_write_pos = 0;
+    g_read_pos = 0;
+    mtx_unlock(&g_lock);
 }
-
-// ============================================================
-// Native method table
-// ============================================================
 
 #define CLS "javax/microedition/lcdui/NativeBridge"
 
 static java_native_method j2me_input_methods[] = {
-    {CLS, "pollInputEvent", "()[I", n_pollInputEvent},
-    {CLS, "isStopRequested", "()Z", n_isStopRequested},
-    {CLS, "hasInput", "()Z", n_hasInput},
+    {CLS, "waitInputEvent",  "(I)[I", n_waitInputEvent},
+    {CLS, "wakeInput",       "()V",   n_wakeInput},
+    {CLS, "isStopRequested", "()Z",   n_isStopRequested},
 };
 
 #undef CLS
 
 void j2me_input_reg_natives(MiniJVM *jvm) {
-    native_reg_lib(jvm, j2me_input_methods,
-                   sizeof(j2me_input_methods) / sizeof(java_native_method));
-    printf("[J2ME Input] Registered %lu native methods\n",
-           sizeof(j2me_input_methods) / sizeof(java_native_method));
+    native_reg_lib(jvm, j2me_input_methods, sizeof(j2me_input_methods) / sizeof(java_native_method));
 }

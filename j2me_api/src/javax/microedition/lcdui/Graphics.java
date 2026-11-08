@@ -182,7 +182,8 @@ public class Graphics {
     // --- Text ---
 
     public void drawString(String str, int x, int y, int anchor) {
-        if (str == null || str.isEmpty()) return;
+        if (str == null) throw new NullPointerException();
+        if (str.length() == 0) return;
         NativeBridge.drawString(nativeContext, str,
                 x + translateX, y + translateY, anchor);
     }
@@ -238,7 +239,7 @@ public class Graphics {
     }
 
     public void fillTriangle(int x1, int y1, int x2, int y2, int x3, int y3) {
-        fillPolygon(new int[]{x1, x2, x3}, new int[]{y1, y2, y3}, 3);
+        NativeBridge.fillTriangle(nativeContext, x1 + translateX, y1 + translateY, x2 + translateX, y2 + translateY, x3 + translateX, y3 + translateY);
     }
 
     public int getDisplayColor(int color) {
@@ -246,7 +247,7 @@ public class Graphics {
         return color & 0x00FFFFFF;
     }
 
-    /** Returns the native CGContext handle — used by micro3D Render for GL-to-canvas blit */
+    /** Native context handle, for the 3D engines' blit to the canvas. */
     public long getNativeContext() {
         return nativeContext;
     }
@@ -257,10 +258,9 @@ public class Graphics {
     /** Full canvas/image height — may differ from clip height */
     public int getCanvasHeight() { return canvasHeight; }
 
-    /** Read pixel data from canvas — used by Nokia DirectGraphics */
+    /** Read pixels of the surface behind this Graphics (Nokia DirectGraphics). */
     public void getPixels(int[] pixels, int offset, int scanlength, int x, int y, int w, int h) {
-        // TODO: read from canvas context — for now stub with zeros
-        // This requires reading from the RenderContext's bitmap, not from an Image
+        NativeBridge.getContextRGB(nativeContext, pixels, offset, scanlength, x, y, w, h);
     }
 
     public void copyArea(int xSrc, int ySrc, int width, int height,

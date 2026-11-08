@@ -13,7 +13,8 @@
 #include <stdlib.h>
 #include <zlib.h>
 #include <OpenGLES/ES1/gl.h>
-#include <CoreGraphics/CoreGraphics.h>
+#include "../j2me_render.h"
+#include "../../Engine/gfx_core.h"
 
 /* JNI type definitions (normally from jni.h, which we don't use) */
 typedef s64 jlong;
@@ -958,13 +959,12 @@ static s32 n_Graphics3D_bindGraphics(Runtime *runtime, JClass *clazz) {
      * When supersampling, nearest-neighbor upscale the Canvas content. */
     int pixelsCopied = 0;
     if (aNativeCtx) {
-        CGContextRef *ctxPtr = (CGContextRef *)(intptr_t)aNativeCtx;
-        CGContextRef cgCtx = *ctxPtr;
-        if (cgCtx) {
-            uint8_t *canvasPixels = (uint8_t *)CGBitmapContextGetData(cgCtx);
-            size_t canvasBPR = CGBitmapContextGetBytesPerRow(cgCtx);
-            size_t canvasW = CGBitmapContextGetWidth(cgCtx);
-            size_t canvasH = CGBitmapContextGetHeight(cgCtx);
+        uint8_t *canvasPixels = NULL;
+        int canvasWi = 0, canvasHi = 0;
+        if (j2me_render_get_pixels(aNativeCtx, &canvasPixels, &canvasWi, &canvasHi)) {
+            size_t canvasBPR = (size_t)canvasWi * 4;
+            size_t canvasW = (size_t)canvasWi;
+            size_t canvasH = (size_t)canvasHi;
             if (canvasPixels) {
                 int srcW = aWidth < (int)canvasW ? aWidth : (int)canvasW;
                 int srcH = aHeight < (int)canvasH ? aHeight : (int)canvasH;
@@ -1044,16 +1044,15 @@ static s32 n_Graphics3D_releaseGraphics(Runtime *runtime, JClass *clazz) {
         s32 scaledW = g_m3g_canvas_w * scale;
         s32 scaledH = g_m3g_canvas_h * scale;
 
-        CGContextRef *ctxPtr = (CGContextRef *)(intptr_t)aNativeCtx;
-        CGContextRef cgCtx = *ctxPtr;
-        if (cgCtx) {
-            size_t canvasW = CGBitmapContextGetWidth(cgCtx);
-            size_t canvasH = CGBitmapContextGetHeight(cgCtx);
+        uint8_t *canvasPixels = NULL;
+        int canvasWi = 0, canvasHi = 0;
+        if (j2me_render_get_pixels(aNativeCtx, &canvasPixels, &canvasWi, &canvasHi)) {
+            size_t canvasW = (size_t)canvasWi;
+            size_t canvasH = (size_t)canvasHi;
 
             if (scale == 1) {
                 /* Fast 1:1 path — direct pixel copy with RGBA→BGRA */
-                uint8_t *canvasPixels = (uint8_t *)CGBitmapContextGetData(cgCtx);
-                size_t canvasBPR = CGBitmapContextGetBytesPerRow(cgCtx);
+                size_t canvasBPR = canvasW * 4;
                 int copyW = g_m3g_canvas_w < (int)canvasW ? g_m3g_canvas_w : (int)canvasW;
                 int copyH = g_m3g_canvas_h < (int)canvasH ? g_m3g_canvas_h : (int)canvasH;
                 if (canvasPixels) {
@@ -1071,31 +1070,10 @@ static s32 n_Graphics3D_releaseGraphics(Runtime *runtime, JClass *clazz) {
                     }
                 }
             } else {
-                /* Supersampled path — downscale via Core Graphics.
-                 * Create CGImage from scaled RGBA pixels, draw into canvas
-                 * with high-quality interpolation. CG handles RGBA→BGRA. */
-                CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-                CGContextRef tmpCtx = CGBitmapContextCreate(
-                    (void *)g_m3g_pixels, scaledW, scaledH, 8, scaledW * 4, cs,
-                    kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
-                if (tmpCtx) {
-                    CGImageRef srcImg = CGBitmapContextCreateImage(tmpCtx);
-                    if (srcImg) {
-                        int dstW = g_m3g_canvas_w < (int)canvasW ? g_m3g_canvas_w : (int)canvasW;
-                        int dstH = g_m3g_canvas_h < (int)canvasH ? g_m3g_canvas_h : (int)canvasH;
-                        CGContextSaveGState(cgCtx);
-                        CGContextSetBlendMode(cgCtx, kCGBlendModeCopy);
-                        CGContextSetInterpolationQuality(cgCtx, kCGInterpolationHigh);
-                        /* Flip Y: row 0 of M3G pixels → row 0 of canvas bitmap */
-                        CGContextTranslateCTM(cgCtx, 0, dstH);
-                        CGContextScaleCTM(cgCtx, 1, -1);
-                        CGContextDrawImage(cgCtx, CGRectMake(0, 0, dstW, dstH), srcImg);
-                        CGContextRestoreGState(cgCtx);
-                        CGImageRelease(srcImg);
-                    }
-                    CGContextRelease(tmpCtx);
-                }
-                CGColorSpaceRelease(cs);
+                /* Supersampled path: box-filter down to the canvas size */
+                int dstW = g_m3g_canvas_w < (int)canvasW ? g_m3g_canvas_w : (int)canvasW;
+                int dstH = g_m3g_canvas_h < (int)canvasH ? g_m3g_canvas_h : (int)canvasH;
+                gfx_downscale_rgba(g_m3g_pixels, scaledW, scaledH, (uint32_t *)canvasPixels, dstW, dstH, (int)canvasW, 1);
             }
         }
     }

@@ -37,37 +37,22 @@ public class GameCanvas extends Canvas {
 	}
 
 	private int convertGameKeyCode(int keyCode) {
-		switch (keyCode) {
-			case KEY_LEFT:
-			case KEY_NUM4:
-				return LEFT_PRESSED;
-			case KEY_UP:
-			case KEY_NUM2:
-				return UP_PRESSED;
-			case KEY_RIGHT:
-			case KEY_NUM6:
-				return RIGHT_PRESSED;
-			case KEY_DOWN:
-			case KEY_NUM8:
-				return DOWN_PRESSED;
-			case KEY_FIRE:
-			case KEY_NUM5:
-				return FIRE_PRESSED;
-			case KEY_NUM7:
-				return GAME_A_PRESSED;
-			case KEY_NUM9:
-				return GAME_B_PRESSED;
-			case KEY_STAR:
-				return GAME_C_PRESSED;
-			case KEY_POUND:
-				return GAME_D_PRESSED;
-			default:
-				return 0;
+		switch (javax.microedition.lcdui.keyboard.KeyMapper.getGameAction(keyCode)) {
+			case LEFT: return LEFT_PRESSED;
+			case UP: return UP_PRESSED;
+			case RIGHT: return RIGHT_PRESSED;
+			case DOWN: return DOWN_PRESSED;
+			case FIRE: return FIRE_PRESSED;
+			case GAME_A: return GAME_A_PRESSED;
+			case GAME_B: return GAME_B_PRESSED;
+			case GAME_C: return GAME_C_PRESSED;
+			case GAME_D: return GAME_D_PRESSED;
+			default: return 0;
 		}
 	}
 
 	@Override
-	public void postKeyPressed(int keyCode) {
+	public void doKeyPressed(int keyCode) {
 		int code = convertGameKeyCode(keyCode);
 		if (code != 0) {
 			keyState |= code;
@@ -75,11 +60,11 @@ public class GameCanvas extends Canvas {
 				return;
 			}
 		}
-		super.postKeyPressed(keyCode);
+		super.doKeyPressed(keyCode);
 	}
 
 	@Override
-	public void postKeyReleased(int keyCode) {
+	public void doKeyReleased(int keyCode) {
 		int code = convertGameKeyCode(keyCode);
 		if (code != 0) {
 			keyState &= ~code;
@@ -87,15 +72,15 @@ public class GameCanvas extends Canvas {
 				return;
 			}
 		}
-		super.postKeyReleased(keyCode);
+		super.doKeyReleased(keyCode);
 	}
 
 	@Override
-	public void postKeyRepeated(int keyCode) {
+	public void doKeyRepeated(int keyCode) {
 		if (suppressCommands && convertGameKeyCode(keyCode) != 0) {
 			return;
 		}
-		super.postKeyRepeated(keyCode);
+		super.doKeyRepeated(keyCode);
 	}
 
 	public int getKeyStates() {
@@ -103,9 +88,6 @@ public class GameCanvas extends Canvas {
 	}
 
 	public Graphics getGraphics() {
-		if (image == null || image.getWidth() != width || image.getHeight() != height) {
-			image = Image.createImage(width, height);
-		}
 		return image.getGraphics();
 	}
 

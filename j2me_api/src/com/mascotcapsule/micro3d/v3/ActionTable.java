@@ -40,9 +40,9 @@ public class ActionTable {
 		if (name == null) {
 			throw new NullPointerException();
 		}
-		InputStream is = ActionTable.class.getResourceAsStream(name);
+		InputStream is = javax.microedition.util.GameResources.open(name);
 		if (is == null && !name.startsWith("/")) {
-			is = ActionTable.class.getResourceAsStream("/" + name);
+			is = javax.microedition.util.GameResources.open("/" + name);
 		}
 		if (is == null) {
 			throw new IOException();

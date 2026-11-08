@@ -64,9 +64,9 @@ public class Figure {
 	}
 
 	private static byte[] loadResourceAsBytes(String name) {
-		InputStream is = Figure.class.getResourceAsStream(name);
+		InputStream is = javax.microedition.util.GameResources.open(name);
 		if (is == null && !name.startsWith("/")) {
-			is = Figure.class.getResourceAsStream("/" + name);
+			is = javax.microedition.util.GameResources.open("/" + name);
 		}
 		if (is == null) {
 			ClassLoader cl = Thread.currentThread().getContextClassLoader();

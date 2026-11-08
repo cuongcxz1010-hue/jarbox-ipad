@@ -11,10 +11,12 @@ extern "C" {
 #include "jvm.h"
 #include "jvm_util.h"
 
+#ifndef JIT_ENABLE
 #if __JVM_OS_IOS__ || __JVM_OS_CYGWIN__ || __JVM_ARCH_32__
     #define JIT_ENABLE 0
 #else
     #define JIT_ENABLE 01
+#endif
 #endif
 
 #define JIT_COMPILE_EXEC_COUNT 5000

@@ -3,7 +3,7 @@ package javax.microedition.lcdui;
 import java.util.ArrayList;
 
 public class Form extends Screen {
-    private ArrayList<Item> items = new ArrayList<Item>();
+    private final ArrayList<Item> items = new ArrayList<Item>();
     private ItemStateListener itemStateListener;
 
     public Form(String title) {
@@ -12,71 +12,92 @@ public class Form extends Screen {
 
     public Form(String title, Item[] itemArray) {
         setTitle(title);
-        if (itemArray != null) {
-            for (Item item : itemArray) append(item);
-        }
+        if (itemArray != null) for (int i = 0; i < itemArray.length; i++) append(itemArray[i]);
+    }
+
+    private void adopt(Item item) {
+        if (item == null) throw new NullPointerException();
+        if (item.owner != null) throw new IllegalStateException();
+        item.owner = this;
+    }
+
+    private void checkIndex(int i, int limit) {
+        if (i < 0 || i >= limit) throw new IndexOutOfBoundsException();
     }
 
     public int append(Item item) {
-        if (item == null) throw new NullPointerException();
-        item.owner = this;
+        adopt(item);
         items.add(item);
+        contentChanged();
         return items.size() - 1;
     }
 
     public int append(String str) {
+        if (str == null) throw new NullPointerException();
         return append(new StringItem(null, str));
     }
 
     public int append(Image img) {
-        return append(new ImageItem(null, img, ImageItem.LAYOUT_DEFAULT, ""));
+        if (img == null) throw new NullPointerException();
+        return append(new ImageItem(null, img, ImageItem.LAYOUT_DEFAULT, null));
     }
 
-    public void insert(int index, Item item) { item.owner = this; items.add(index, item); }
-    public void set(int index, Item item) { item.owner = this; items.set(index, item); }
-    public void delete(int index) { items.remove(index); }
-    public void deleteAll() { items.clear(); }
+    public void insert(int index, Item item) {
+        checkIndex(index, items.size() + 1);
+        adopt(item);
+        items.add(index, item);
+        contentChanged();
+    }
+
+    public void set(int index, Item item) {
+        checkIndex(index, items.size());
+        adopt(item);
+        items.set(index, item).owner = null;
+        contentChanged();
+    }
+
+    public void delete(int index) {
+        checkIndex(index, items.size());
+        items.remove(index).owner = null;
+        contentChanged();
+    }
+
+    public void deleteAll() {
+        for (int i = 0; i < items.size(); i++) items.get(i).owner = null;
+        items.clear();
+        contentChanged();
+    }
+
     public int size() { return items.size(); }
-    public Item get(int index) { return items.get(index); }
+
+    public Item get(int index) {
+        checkIndex(index, items.size());
+        return items.get(index);
+    }
+
     public void setItemStateListener(ItemStateListener listener) { itemStateListener = listener; }
 
     void notifyItemStateChanged(Item item) {
         if (itemStateListener != null) itemStateListener.itemStateChanged(item);
     }
 
-    /** Serialize form to native bridge and show it. */
-    /** Pull text typed into native text fields (native item index == form item index). */
-    void syncFromNative() {
-        for (int i = 0; i < items.size(); i++) {
-            Item item = items.get(i);
-            if (item instanceof TextField) {
-                String typed = NativeBridge.takeTextResult(i);
-                if (typed != null) ((TextField) item).setString(typed);
-            }
-        }
+    @Override
+    void writeContent(ScreenWriter out) {
+        out.field("kind", "form");
+        out.beginArray("items");
+        for (int i = 0; i < items.size(); i++) items.get(i).writeTo(out);
+        out.endArray();
     }
 
-    public void showNative() {
-        NativeBridge.formBegin(getTitle(), 0); // type 0 = form
-        for (Item item : items) {
-            int type = item.getItemType();
-            if (type == 0) { // StringItem
-                NativeBridge.formAddStringItem(item.getItemLabel(), item.getItemText(), 0);
-            } else if (type == 1) { // TextField
-                TextField tf = (TextField) item;
-                NativeBridge.formAddTextField(item.getItemLabel(), item.getItemText(),
-                        tf.getMaxSize(), tf.getConstraints());
-            } else {
-                // Fallback: show as string
-                NativeBridge.formAddStringItem(item.getItemLabel(), item.getItemText(), 0);
-            }
-        }
-        // Commands
-        ArrayList<Command> cmds = getCommands();
-        for (int i = 0; i < cmds.size(); i++) {
-            Command c = cmds.get(i);
-            NativeBridge.formAddCommand(c.getLabel(), c.getCommandType(), c.getPriority(), i);
-        }
-        NativeBridge.formShow();
+    @Override
+    void onNativeValue(int index, String value) {
+        if (index < 0 || index >= items.size()) return;
+        Item item = items.get(index);
+        if (item.onNativeValue(value)) notifyItemStateChanged(item);
+    }
+
+    @Override
+    void onItemCommand(int itemIndex, int commandIndex) {
+        if (itemIndex >= 0 && itemIndex < items.size()) items.get(itemIndex).fireItemCommand(commandIndex);
     }
 }

@@ -823,13 +823,13 @@ public class Loader {
 
 		if (name.charAt(0) == '/' || iParentResourceName == null)   // absolute file reference
 		{
-			return (Loader.class.getResourceAsStream(name));
+			return (javax.microedition.util.GameResources.open(name));
 		}
 
 		String uri = iParentResourceName.substring(0, iParentResourceName.lastIndexOf('/') + 1) + name;
 
 		if (uri.charAt(0) == '/') {
-			return (Loader.class.getResourceAsStream(uri));
+			return (javax.microedition.util.GameResources.open(uri));
 		} else {
 			return getHttpInputStream(uri);
 		}

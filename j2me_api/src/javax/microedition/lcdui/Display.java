@@ -1,119 +1,270 @@
 package javax.microedition.lcdui;
 
-import javax.microedition.lcdui.event.EventQueue;
 import javax.microedition.lcdui.event.Event;
-import javax.microedition.lcdui.event.CanvasEvent;
+import javax.microedition.lcdui.event.EventQueue;
 import javax.microedition.lcdui.event.RunnableEvent;
+import javax.microedition.lcdui.event.SimpleEvent;
 import javax.microedition.midlet.MIDlet;
 
 /**
- * J2ME Display — manages the current Displayable and render loop.
- * Analogous to J2ME-Loader's Display.
+ * The current screen and the MIDP event thread. Every callback into the
+ * MIDlet (paint, key and pointer events, commandAction, show/hide,
+ * callSerially) runs on that one thread, so they never overlap, as MIDP
+ * requires and as J2ME Loader does.
  */
 public class Display {
-    private static Display instance;
-    private Displayable current;
-    private volatile boolean running;
-    private static final EventQueue eventQueue = new EventQueue();
-    private MIDlet currentMIDlet;
+    public static final int LIST_ELEMENT = 1;
+    public static final int CHOICE_GROUP_ELEMENT = 2;
+    public static final int ALERT = 3;
+    public static final int COLOR_BACKGROUND = 0;
+    public static final int COLOR_FOREGROUND = 1;
+    public static final int COLOR_HIGHLIGHTED_BACKGROUND = 2;
+    public static final int COLOR_HIGHLIGHTED_FOREGROUND = 3;
+    public static final int COLOR_BORDER = 4;
+    public static final int COLOR_HIGHLIGHTED_BORDER = 5;
 
-    // Screen dimensions (configurable via system properties)
+    private static final EventQueue eventQueue = new EventQueue();
+    private static Display instance;
+
     private static int screenWidth = 240;
     private static int screenHeight = 320;
+    private static volatile boolean appVisible = true;
 
     static {
-        String w = System.getProperty("j2me.screen.width");
-        String h = System.getProperty("j2me.screen.height");
-        if (w != null) try { screenWidth = Integer.parseInt(w); } catch (Exception e) {}
-        if (h != null) try { screenHeight = Integer.parseInt(h); } catch (Exception e) {}
+        screenWidth = intProperty("j2me.screen.width", 240);
+        screenHeight = intProperty("j2me.screen.height", 320);
     }
 
-    private Display() {
+    private static int intProperty(String key, int fallback) {
+        String v = System.getProperty(key);
+        if (v != null) {
+            try {
+                return Integer.parseInt(v);
+            } catch (NumberFormatException e) {
+                // keep the default
+            }
+        }
+        return fallback;
     }
 
-    public static Display getDisplay(MIDlet midlet) {
-        if (instance == null) {
-            instance = new Display();
-        }
-        if (midlet != null) {
-            instance.currentMIDlet = midlet;
-        }
+    private volatile Displayable current;
+    private MIDlet midlet;
+
+    private Display() { }
+
+    public static synchronized Display getDisplay(MIDlet midlet) {
+        if (instance == null) instance = new Display();
+        if (midlet != null) instance.midlet = midlet;
         return instance;
     }
 
-    public void setCurrent(Displayable d) {
-        if (d == null) return;
-        Displayable old = current;
-        current = d;
+    public static EventQueue getEventQueue() { return eventQueue; }
 
-        d.width = screenWidth;
-        d.height = screenHeight;
+    public static void postEvent(Event event) { eventQueue.postEvent(event); }
 
-        if (d instanceof Canvas) {
-            // Pass canvas commands to native (for soft-key display)
-            java.util.ArrayList<Command> cmds = d.getCommands();
-            NativeBridge.formBegin("", 0); // reset command buffer
-            for (int i = 0; i < cmds.size(); i++) {
-                Command c = cmds.get(i);
-                NativeBridge.formAddCommand(c.getLabel(), c.getCommandType(), c.getPriority(), i);
-            }
-            NativeBridge.showCanvas();
-            Canvas canvas = (Canvas) d;
-            canvas.initContext();
-            canvas.repaintPending = true;
-            canvas.showNotify();
-        } else if (d instanceof Form) {
-            ((Form) d).showNative();
-        } else if (d instanceof List) {
-            ((List) d).showNative();
-        } else if (d instanceof Alert) {
-            ((Alert) d).showNative();
-        } else if (d instanceof TextBox) {
-            ((TextBox) d).showNative();
+    public static int getScreenWidth() { return screenWidth; }
+    public static int getScreenHeight() { return screenHeight; }
+
+    // ------------------------------------------------------------
+    // Current screen
+    // ------------------------------------------------------------
+
+    public void setCurrent(Displayable next) {
+        if (next == null) return;
+        if (next instanceof Alert) {
+            showAlert((Alert) next, current);
+            return;
         }
-
-        if (old instanceof Canvas && old != d) {
-            ((Canvas) old).hideNotify();
-            ((Canvas) old).destroyContext();
-        }
+        switchTo(next);
     }
 
     public void setCurrent(Alert alert, Displayable nextDisplayable) {
-        alert.nextDisplayable = nextDisplayable;
-        setCurrent(alert);
+        if (nextDisplayable == null || nextDisplayable instanceof Alert) throw new NullPointerException();
+        showAlert(alert, nextDisplayable);
     }
 
-    public Displayable getCurrent() {
-        return current;
+    private void showAlert(Alert alert, Displayable after) {
+        alert.nextDisplayable = after;
+        switchTo(alert);
     }
 
-    public void callSerially(Runnable r) {
-        if (r != null) {
-            Display.eventQueue.postEvent(RunnableEvent.getInstance(r));
+    public void setCurrentItem(Item item) {
+        if (item == null) throw new NullPointerException();
+        if (item.owner == null) throw new IllegalStateException();
+        setCurrent(item.owner);
+    }
+
+    public Displayable getCurrent() { return current; }
+
+    private void switchTo(final Displayable next) {
+        final Displayable previous = current;
+        current = next;
+        eventQueue.postEvent(new SimpleEvent() {
+            public void process() {
+                if (previous != null && previous != next) previous.hide();
+                next.show();
+            }
+        });
+    }
+
+    /** The alert's timeout ran out or its implicit OK was pressed. */
+    static void dismissAlert(Alert alert) {
+        Display d = instance;
+        if (d != null && d.current == alert && alert.nextDisplayable != null) {
+            d.switchTo(alert.nextDisplayable);
         }
     }
 
-    /**
-     * Post an event to the event queue (analogous to J2ME-Loader's Display.postEvent).
-     */
-    public static void postEvent(Event event) {
-        Display.eventQueue.postEvent(event);
+    public void callSerially(Runnable r) {
+        if (r != null) eventQueue.postEvent(RunnableEvent.getInstance(r));
     }
 
-    // --- Display capabilities (MIDP 2.0) ---
+    // ------------------------------------------------------------
+    // Screen content updates
+    // ------------------------------------------------------------
+
+    private static final class RefreshEvent extends SimpleEvent {
+        private final Displayable target;
+
+        RefreshEvent(Displayable target) { this.target = target; }
+
+        public void process() {
+            target.refreshPending = false;
+            target.refresh();
+        }
+    }
+
+    /** Coalesced: a burst of changes to one screen sends it to the platform once. */
+    static void contentChanged(Displayable d) {
+        Display display = instance;
+        if (display == null || display.current != d || d.refreshPending) return;
+        d.refreshPending = true;
+        eventQueue.postEvent(new RefreshEvent(d));
+    }
+
+    static void refreshCurrent() {
+        Display display = instance;
+        if (display != null && display.current != null) contentChanged(display.current);
+    }
+
+    static boolean isVisible(Displayable d) {
+        Display display = instance;
+        return display != null && display.current == d && appVisible;
+    }
+
+    // ------------------------------------------------------------
+    // Events coming from the platform (delivered by MIDletRunner)
+    // ------------------------------------------------------------
+
+    /** Application moved to the background or came back. */
+    public void setAppVisible(boolean visible) {
+        if (appVisible == visible) return;
+        appVisible = visible;
+        final Displayable shown = current;
+        if (shown instanceof Canvas) {
+            final Canvas canvas = (Canvas) shown;
+            final boolean nowVisible = visible;
+            eventQueue.postEvent(new SimpleEvent() {
+                public void process() {
+                    if (nowVisible) canvas.show();
+                    else canvas.hide();
+                }
+            });
+        }
+    }
+
+    /** Is this application in the foreground? */
+    public static boolean isAppVisible() { return appVisible; }
+
+    public void postCommand(final int commandId) {
+        final Displayable shown = current;
+        if (shown != null) {
+            eventQueue.postEvent(new SimpleEvent() {
+                public void process() { shown.fireCommandAction(commandId); }
+            });
+        }
+    }
+
+    public void postListSelect(final int index) {
+        final Displayable shown = current;
+        if (shown instanceof Screen) {
+            eventQueue.postEvent(new SimpleEvent() {
+                public void process() { ((Screen) shown).onListSelect(index); }
+            });
+        }
+    }
+
+    public void postAlertDismissed() {
+        final Displayable shown = current;
+        if (shown instanceof Alert) {
+            eventQueue.postEvent(new SimpleEvent() {
+                public void process() { ((Alert) shown).dismiss(); }
+            });
+        }
+    }
+
+    public void postItemValue(final int index, final String value) {
+        final Displayable shown = current;
+        if (shown instanceof Screen && value != null) {
+            eventQueue.postEvent(new SimpleEvent() {
+                public void process() { ((Screen) shown).onNativeValue(index, value); }
+            });
+        }
+    }
+
+    public void postItemCommand(final int itemIndex, final int commandIndex) {
+        final Displayable shown = current;
+        if (shown instanceof Screen) {
+            eventQueue.postEvent(new SimpleEvent() {
+                public void process() { ((Screen) shown).onItemCommand(itemIndex, commandIndex); }
+            });
+        }
+    }
+
+    public Displayable currentDisplayable() { return current; }
+
+    public MIDlet currentMIDlet() { return midlet; }
+
+    // ------------------------------------------------------------
+    // Device properties
+    // ------------------------------------------------------------
 
     public boolean isColor() { return true; }
-    public int numColors() { return 16777216; } // 24-bit (2^24)
-    public int numAlphaLevels() { return 256; } // 8-bit alpha
+    public int numColors() { return 16777216; }
+    public int numAlphaLevels() { return 256; }
     public boolean flashBacklight(int duration) { return false; }
-    public int getBestImageHeight(int imageType) { return 0; }
-    public int getBestImageWidth(int imageType) { return 0; }
+
+    public int getBestImageHeight(int imageType) {
+        switch (imageType) {
+            case LIST_ELEMENT: case CHOICE_GROUP_ELEMENT: return 16;
+            case ALERT: return screenHeight / 2;
+            default: throw new IllegalArgumentException();
+        }
+    }
+
+    public int getBestImageWidth(int imageType) {
+        switch (imageType) {
+            case LIST_ELEMENT: case CHOICE_GROUP_ELEMENT: return 16;
+            case ALERT: return screenWidth;
+            default: throw new IllegalArgumentException();
+        }
+    }
+
     public int getBorderStyle(boolean highlighted) {
         return highlighted ? Graphics.SOLID : Graphics.DOTTED;
     }
-    public int getColor(int colorSpecifier) { return 0; }
 
-    // --- Vibration ---
+    public int getColor(int colorSpecifier) {
+        switch (colorSpecifier) {
+            case COLOR_BACKGROUND: return 0xFFFFFF;
+            case COLOR_FOREGROUND: return 0x000000;
+            case COLOR_HIGHLIGHTED_BACKGROUND: return 0x000080;
+            case COLOR_HIGHLIGHTED_FOREGROUND: return 0xFFFFFF;
+            case COLOR_BORDER: return 0x808080;
+            case COLOR_HIGHLIGHTED_BORDER: return 0x000080;
+            default: throw new IllegalArgumentException();
+        }
+    }
 
     public boolean vibrate(int duration) {
         if (duration < 0) throw new IllegalArgumentException();
@@ -121,124 +272,27 @@ public class Display {
         return true;
     }
 
-    // --- Screen size ---
+    // ------------------------------------------------------------
+    // Start and stop of the event thread
+    // ------------------------------------------------------------
 
-    public static int getScreenWidth() { return screenWidth; }
-    public static int getScreenHeight() { return screenHeight; }
-
-    // --- Render loop ---
-
-    /**
-     * Run the render/event loop. Blocks until MIDlet calls notifyDestroyed().
-     * Called by MIDletRunner after startApp().
-     */
-    public void runEventLoop() {
-        running = true;
+    public static void startEventThread() {
         eventQueue.startProcessing();
-        final int baseFps = Canvas.getLimitFps();   // from the game settings
-        int appliedOverride = -1;
-        int tick = 0;
-        System.out.println("[Display] Event loop started (" + screenWidth + "x" + screenHeight + ")");
-
-        while (running && !MIDlet.isDestroyRequested()) {
-            // Runtime frame-rate cap from the app (idle mode / device too hot)
-            if ((++tick & 31) == 0) {
-                int override = NativeBridge.getFpsOverride();
-                if (override != appliedOverride) {
-                    appliedOverride = override;
-                    Canvas.setLimitFps(override >= 0 ? override : baseFps);
-                    System.out.println("[Display] FPS limit now " + Canvas.getLimitFps()
-                            + (override >= 0 ? " (app override)" : " (game setting)"));
-                }
-            }
-
-            // 0. Check if native side requested stop (e.g. user pressed Back)
-            if (NativeBridge.isStopRequested()) {
-                System.out.println("[Display] Native stop requested, exiting event loop");
-                MIDlet.requestDestroy();
-                break;
-            }
-
-            // 1. Poll native input events and post to EventQueue
-            int[] nativeEvent;
-            while ((nativeEvent = NativeBridge.pollInputEvent()) != null) {
-                int type = nativeEvent[0];
-                if (type <= 2 && current instanceof Canvas) {
-                    // Pointer event → post CanvasEvent
-                    Canvas c = (Canvas) current;
-                    int ceType = type == 0 ? CanvasEvent.POINTER_PRESSED :
-                                 type == 1 ? CanvasEvent.POINTER_DRAGGED : CanvasEvent.POINTER_RELEASED;
-                    Display.eventQueue.postEvent(CanvasEvent.getInstance(c, ceType, 0, (float)nativeEvent[1], (float)nativeEvent[2]));
-                } else if (type >= 3 && type <= 5 && current instanceof Canvas) {
-                    // Key event → post CanvasEvent
-                    Canvas c = (Canvas) current;
-                    int ceType = type == 3 ? CanvasEvent.KEY_PRESSED :
-                                 type == 4 ? CanvasEvent.KEY_RELEASED : CanvasEvent.KEY_REPEATED;
-                    Display.eventQueue.postEvent(CanvasEvent.getInstance(c, ceType, nativeEvent[3]));
-                } else if (type == 10) {
-                    int cmdId = nativeEvent[3];
-                    // Text typed in native views reaches Java before the listener runs
-                    if (current instanceof TextBox) ((TextBox) current).syncFromNative();
-                    else if (current instanceof Form) ((Form) current).syncFromNative();
-                    if (current != null) current.fireCommandAction(cmdId);
-                } else if (type == 11 && current instanceof List) {
-                    ((List) current).handleListSelect(nativeEvent[3]);
-                } else if (type == 12 && current instanceof Alert) {
-                    Alert alert = (Alert) current;
-                    if (alert.nextDisplayable != null) setCurrent(alert.nextDisplayable);
-                }
-            }
-
-            // 2. Handle resumeRequest — call startApp() again
-            if (MIDlet.isResumeRequested() && currentMIDlet != null) {
-                try {
-                    currentMIDlet.callStartApp();
-                } catch (Exception e) {
-                    System.out.println("[Display] resumeRequest startApp error: " + e.getMessage());
-                }
-            }
-
-            // 3. Repaint if needed (Canvas only)
-            if (current instanceof Canvas) {
-                Canvas canvas = (Canvas) current;
-                if (canvas.repaintPending) {
-                    canvas.doPaint();
-                }
-            }
-
-            // Wait for work: wake up as soon as a key / touch arrives or the
-            // game asks for a repaint (checked every 2 ms, at most ~16 ms),
-            // instead of always sleeping 16 ms — keys and frames come sooner.
-            try {
-                Thread.sleep(1);
-                for (int i = 0; i < 8 && !MIDlet.isDestroyRequested(); i++) {
-                    if (NativeBridge.hasInput()) break;
-                    Displayable shown = current;
-                    if (shown instanceof Canvas && ((Canvas) shown).repaintPending) break;
-                    Thread.sleep(2);
-                }
-            } catch (InterruptedException e) {
-                break;
-            }
-        }
-
-        eventQueue.stopProcessing();
-
-        // Destroy current Canvas context to release native CGBitmapContext memory
-        if (current instanceof Canvas) {
-            ((Canvas) current).hideNotify();
-            ((Canvas) current).destroyContext();
-        }
-        current = null;
-        currentMIDlet = null;
-        instance = null; // Reset for next MIDlet launch
-        System.out.println("[Display] Event loop stopped");
     }
 
-    /**
-     * Stop the event loop.
-     */
-    public void stopEventLoop() {
-        running = false;
+    /** End of the session: stop dispatching and release the screen. */
+    public static void shutdown() {
+        eventQueue.stopProcessing();
+        Display d = instance;
+        if (d != null && d.current != null) {
+            Displayable shown = d.current;
+            d.current = null;
+            try {
+                shown.hide();
+            } catch (Throwable t) {
+                System.out.println("[Display] hide on shutdown: " + t);
+            }
+        }
+        instance = null;
     }
 }

@@ -31,6 +31,22 @@ enum GameOrientation: String {
     static func save(_ value: GameOrientation, forJar path: String) { GameSettings(jarPath: path).orientation = value }
 }
 
+/// Phone families with different key codes (see KeyMapper.java).
+enum KeyLayout: Int, CaseIterable {
+    case nokia = 0, siemens = 1, motorola = 2, samsung = 3, sonyEricsson = 4, nokiaE62 = 5
+
+    var title: String {
+        switch self {
+        case .nokia:        return "Nokia (mặc định)"
+        case .samsung:      return "Samsung"
+        case .sonyEricsson: return "Sony Ericsson"
+        case .motorola:     return "Motorola"
+        case .siemens:      return "Siemens"
+        case .nokiaE62:     return "Nokia E62 (QWERTY)"
+        }
+    }
+}
+
 struct GameSettings {
     let id: String
 
@@ -122,6 +138,58 @@ struct GameSettings {
     var keepScreenOn: Bool {
         get { bool("keepOn_", true) }
         nonmutating set { store(newValue, "keepOn_") }
+    }
+
+    /// Phone family whose key codes the game expects.
+    var keyLayout: KeyLayout {
+        get { KeyLayout(rawValue: int("keyLayout_", 0)) ?? .nokia }
+        nonmutating set { store(newValue.rawValue, "keyLayout_") }
+    }
+
+    /// Text sizes in pixels for Font.SIZE_SMALL / MEDIUM / LARGE (0 = chosen from the resolution).
+    var fontSizes: (small: Int, medium: Int, large: Int) {
+        get { (int("fontS_", 0), int("fontM_", 0), int("fontL_", 0)) }
+        nonmutating set { store(newValue.small, "fontS_"); store(newValue.medium, "fontM_"); store(newValue.large, "fontL_") }
+    }
+
+    /// Heap limit of the Java VM in megabytes.
+    var heapMB: Int {
+        get { int("heapMB_", 192) }
+        nonmutating set { store(newValue, "heapMB_") }
+    }
+
+    /// Call pauseApp()/startApp() when the app leaves and returns to the foreground.
+    /// Off by default: most phones only sent hideNotify, and some games restart on startApp.
+    var callPauseApp: Bool {
+        get { bool("callPause_", false) }
+        nonmutating set { store(newValue, "callPause_") }
+    }
+
+    /// Sound on or off for this game.
+    var soundEnabled: Bool {
+        get { bool("sound_", true) }
+        nonmutating set { store(newValue, "sound_") }
+    }
+
+    /// Pass the per-game engine settings to the Java VM. Call before jvm_bridge_init.
+    func applyToJVM() {
+        jvm_bridge_set_property("j2me.keyboard.layout", String(keyLayout.rawValue))
+        jvm_bridge_set_property("j2me.call.pauseapp", callPauseApp ? "1" : "0")
+        jvm_bridge_set_property("j2me.sound.enabled", soundEnabled ? "1" : "0")
+        let res = resolution
+        let sizes = resolvedFontSizes(height: min(res.w, res.h))
+        jvm_bridge_set_font_sizes(Int32(sizes.small), Int32(sizes.medium), Int32(sizes.large))
+        jvm_bridge_set_heap_limit(Int32(heapMB))
+    }
+
+    /// J2ME Loader's table: font sizes by the shorter screen side, unless the user set them.
+    private func resolvedFontSizes(height: Int) -> (small: Int, medium: Int, large: Int) {
+        let user = fontSizes
+        if user.small > 0 && user.medium > 0 && user.large > 0 { return user }
+        if height <= 128 { return (9, 13, 15) }
+        if height <= 176 { return (13, 15, 20) }
+        if height <= 220 { return (15, 18, 22) }
+        return (18, 22, 26)
     }
 
     /// Auto-press: key code and interval in seconds.

@@ -149,7 +149,7 @@ public class Texture {
 		if (name == null) {
 			throw new NullPointerException();
 		}
-		java.io.InputStream is = Texture.class.getResourceAsStream(name);
+		java.io.InputStream is = javax.microedition.util.GameResources.open(name);
 		if (is == null) throw new IOException("Resource not found: " + name);
 		java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
 		byte[] tmp = new byte[4096];

@@ -8,8 +8,8 @@ public class AudioClip {
     private Player player;
     public AudioClip(int type, String resname) {
         try {
-            InputStream is = AudioClip.class.getResourceAsStream(resname);
-            if (is == null && !resname.startsWith("/")) is = AudioClip.class.getResourceAsStream("/" + resname);
+            InputStream is = javax.microedition.util.GameResources.open(resname);
+            if (is == null && !resname.startsWith("/")) is = javax.microedition.util.GameResources.open("/" + resname);
             if (is != null) { player = Manager.createPlayer(is, "audio/midi"); player.realize(); }
         } catch (Exception e) { System.out.println("AudioClip: " + e.getMessage()); }
     }

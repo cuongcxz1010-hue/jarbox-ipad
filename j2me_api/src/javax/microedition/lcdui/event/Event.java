@@ -44,8 +44,9 @@ public abstract class Event implements Runnable {
 	public void run() {
 		try {
 			process();
-		} catch (Exception e) {
-			System.out.println(getClass().getName() + " process: " + e.getMessage());
+		} catch (Throwable e) {
+			System.out.println(getClass().getName() + " process: " + e);
+			e.printStackTrace();
 		} finally {
 			leaveQueue();
 			recycle();

@@ -2,6 +2,7 @@
 #define J2ME_RENDER_H
 
 #include "jvm.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,6 +26,10 @@ void j2me_render_stop(void);
 
 /// Clean up all render resources. Call between game sessions (after j2me_render_stop).
 void j2me_render_cleanup(void);
+
+/// Pixels (premultiplied BGRA in memory, row 0 on top) behind a Graphics handle,
+/// for the 3D engines. Returns 0 when the handle is no longer valid.
+int j2me_render_get_pixels(int64_t ctxHandle, uint8_t **pixels, int *width, int *height);
 
 #ifdef __cplusplus
 }

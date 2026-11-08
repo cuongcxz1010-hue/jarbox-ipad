@@ -32,7 +32,6 @@ struct GameSettingsView: View {
     @State private var keepScreenOn: Bool
     @State private var autoKey: Int32
     @State private var autoInterval: Int
-    @State private var backgroundAudio: Bool
     @State private var idleFps: Int
     @State private var fps: Int
     @State private var smooth3D: Bool
@@ -62,7 +61,6 @@ struct GameSettingsView: View {
         _keepScreenOn = State(initialValue: settings.keepScreenOn)
         _autoKey = State(initialValue: settings.autoPressCode)
         _autoInterval = State(initialValue: settings.autoPressInterval)
-        _backgroundAudio = State(initialValue: SessionKeeper.backgroundAudioEnabled)
         _idleFps = State(initialValue: settings.idleFps)
         _fps = State(initialValue: settings.fpsLimit)
         _smooth3D = State(initialValue: settings.supersampling3D)
@@ -200,15 +198,12 @@ struct GameSettingsView: View {
                     Text(s < 60 ? "\(s) giây" : "\(s / 60) phút").tag(s)
                 }
             }
-            Toggle("Giữ chạy nền (thử nghiệm)", isOn: saving($backgroundAudio) {
-                SessionKeeper.shared.setBackgroundAudio($0)
-            })
         } header: {
             Text("Treo game & chạy nền")
         } footer: {
             Text("""
             Cách treo ổn định nhất: trong game bấm Menu → Treo game → Treo máy ổn định (giữ máy luôn mở, màn tối, khóa chạm, giảm FPS; tự giảm thêm khi máy nóng). Bật thêm "Truy cập được hướng dẫn" của iOS để iPad không thoát khỏi game. Bật/tắt tự bấm trong Menu khi đang chơi.
-            Giới hạn của iOS: khi bạn thoát ra ngoài hoặc khóa máy, iOS chỉ cho app chạy thêm khoảng 30 giây rồi tạm dừng (game mất kết nối). "Giữ chạy nền (thử nghiệm)" dùng chế độ âm thanh nền để app tiếp tục chạy — có tác dụng với bản cài qua Sideloadly nhưng không được App Store cho phép, tốn pin hơn, và iOS vẫn có thể đóng app khi thiếu bộ nhớ hoặc có cuộc gọi.
+            Giới hạn của iOS: khi bạn thoát ra ngoài hoặc khóa máy, iOS chỉ cho app chạy thêm khoảng 30 giây rồi tạm dừng; máy chủ game sẽ tự ngắt kết nối sau đó. JarBox không dùng âm thanh giả hay GPS giả để lách giới hạn này. Khi quay lại, game tự kết nối lại nếu game có hỗ trợ.
             """)
         }
     }

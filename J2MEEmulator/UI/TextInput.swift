@@ -18,20 +18,28 @@ enum J2MEConstraints {
     static let decimal = 5
     static let mask = 0xFFFF
     static let password = 0x10000
+    static let uneditable = 0x20000
+}
+
+extension UIKeyboardType {
+    /// Keyboard for a MIDP TextField / TextBox constraint.
+    static func j2me(_ constraints: Int) -> UIKeyboardType {
+        switch constraints & J2MEConstraints.mask {
+        case J2MEConstraints.numeric:     return .asciiCapableNumberPad
+        case J2MEConstraints.decimal:     return .decimalPad
+        case J2MEConstraints.phoneNumber: return .phonePad
+        case J2MEConstraints.emailAddr:   return .emailAddress
+        case J2MEConstraints.url:         return .URL
+        default:                          return .default
+        }
+    }
 }
 
 extension UITextField {
     /// Keyboard type and secure entry matching MIDP constraints.
     /// No autocorrection / smart punctuation: accounts and passwords must be typed verbatim.
     func applyJ2MEConstraints(_ constraints: Int) {
-        switch constraints & J2MEConstraints.mask {
-        case J2MEConstraints.numeric:     keyboardType = .asciiCapableNumberPad
-        case J2MEConstraints.decimal:     keyboardType = .decimalPad
-        case J2MEConstraints.phoneNumber: keyboardType = .phonePad
-        case J2MEConstraints.emailAddr:   keyboardType = .emailAddress
-        case J2MEConstraints.url:         keyboardType = .URL
-        default:                          keyboardType = .default
-        }
+        keyboardType = .j2me(constraints)
         isSecureTextEntry = (constraints & J2MEConstraints.password) != 0
         autocorrectionType = .no
         autocapitalizationType = .none

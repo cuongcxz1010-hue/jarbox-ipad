@@ -1,12 +1,8 @@
 package javax.microedition.lcdui;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Enumeration;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
 /**
  * J2ME Image — wraps a native CGImage/CGBitmapContext handle.
@@ -17,8 +13,6 @@ public class Image {
     private int width, height;
     private boolean mutable;
 
-    private Graphics cachedGraphics;
-
     public Image(long nativeHandle, int width, int height, boolean mutable) {
         this.nativeHandle = nativeHandle;
         this.width = width;
@@ -27,112 +21,25 @@ public class Image {
     }
 
     public static Image createImage(int width, int height) {
+        if (width <= 0 || height <= 0) throw new IllegalArgumentException();
         long handle = NativeBridge.createMutableImage(width, height);
-        if (handle == 0) {
-            System.out.println("[Image] ERROR: createMutableImage returned 0 for " + width + "x" + height);
-        }
+        if (handle == 0) throw new OutOfMemoryError("createImage " + width + "x" + height);
         return new Image(handle, width, height, true);
     }
 
-    /**
-     * Create a mutable image filled with the specified ARGB color.
-     * When argb is 0, the image is fully transparent.
-     */
+    /** Mutable image of one ARGB colour, transparency kept (Nokia, Siemens). */
     public static Image createImage(int width, int height, int argb) {
-        Image img = createImage(width, height);
-        if (argb != 0) {
-            // Fill with the specified color
-            int[] fill = new int[width * height];
-            java.util.Arrays.fill(fill, argb);
-            Graphics g = img.getGraphics();
-            g.drawRGB(fill, 0, width, 0, 0, width, height, true);
-        } else {
-            // Clear to fully transparent by overwriting with transparent pixels
-            int[] fill = new int[width * height];
-            // fill is already all zeros (fully transparent)
-            Graphics g = img.getGraphics();
-            g.drawRGB(fill, 0, width, 0, 0, width, height, true);
-        }
-        return img;
+        if (width <= 0 || height <= 0) throw new IllegalArgumentException();
+        long handle = NativeBridge.createFilledImage(width, height, argb);
+        if (handle == 0) throw new OutOfMemoryError("createImage " + width + "x" + height);
+        return new Image(handle, width, height, true);
     }
 
     public static Image createImage(String name) throws IOException {
-        InputStream is = findResource(name);
-        if (is == null) {
-            System.out.println("[Image] ERROR: resource not found: " + name);
-            throw new IOException("Image resource not found: " + name);
-        }
+        if (name == null) throw new NullPointerException();
+        InputStream is = javax.microedition.util.GameResources.open(name);
+        if (is == null) throw new IOException("Image resource not found: " + name);
         return createImage(is);
-    }
-
-    private static InputStream findResource(String name) {
-        // Try exact name first via classloader
-        InputStream is = tryLoadResource(name);
-        if (is != null) return is;
-
-        // If resource has no extension, search JARs on the classpath
-        // for an entry whose name before the extension matches
-        if (name.lastIndexOf('.') <= name.lastIndexOf('/')) {
-            String searchName = name.startsWith("/") ? name.substring(1) : name;
-            String match = findEntryByPrefix(searchName);
-            if (match != null) {
-                is = tryLoadResource("/" + match);
-                if (is != null) return is;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Scan classpath JARs for an entry whose basename (without extension)
-     * matches the given name. For example, searching for "bg1" will match "bg1.png".
-     */
-    private static String findEntryByPrefix(String name) {
-        String cp = System.getProperty("java.class.path");
-        if (cp == null) return null;
-        String[] paths = cp.split(File.pathSeparator);
-        for (String path : paths) {
-            if (path == null || path.length() == 0) continue;
-            File f = new File(path);
-            if (!f.isFile()) continue;
-            try {
-                ZipFile zf = new ZipFile(f);
-                Enumeration entries = zf.entries();
-                while (entries.hasMoreElements()) {
-                    ZipEntry entry = (ZipEntry) entries.nextElement();
-                    String entryName = entry.getName();
-                    int dotIdx = entryName.lastIndexOf('.');
-                    if (dotIdx > 0) {
-                        String baseName = entryName.substring(0, dotIdx);
-                        if (baseName.equals(name)) {
-                            zf.close();
-                            return entryName;
-                        }
-                    }
-                }
-                zf.close();
-            } catch (IOException e) {
-                // skip this jar
-            }
-        }
-        return null;
-    }
-
-    private static InputStream tryLoadResource(String name) {
-        InputStream is = Image.class.getResourceAsStream(name);
-        if (is == null && !name.startsWith("/")) {
-            is = Image.class.getResourceAsStream("/" + name);
-        }
-        if (is == null) {
-            ClassLoader cl = Thread.currentThread().getContextClassLoader();
-            if (cl != null) {
-                is = cl.getResourceAsStream(name);
-                if (is == null && name.startsWith("/")) {
-                    is = cl.getResourceAsStream(name.substring(1));
-                }
-            }
-        }
-        return is;
     }
 
     public static Image createImage(InputStream stream) throws IOException {
@@ -151,45 +58,38 @@ public class Image {
     }
 
     public static Image createImage(Image source, int x, int y, int width, int height, int transform) {
-        // Determine output size based on transform
-        int outW = width, outH = height;
-        if (transform == 5 || transform == 6 || transform == 7 || transform == 4) {
-            // ROT90, ROT270, MIRROR_ROT90, MIRROR_ROT270 swap axes
-            outW = height; outH = width;
-        }
-        Image result = createImage(outW, outH);
-        Graphics g = result.getGraphics();
-        g.drawRegion(source, x, y, width, height, transform, 0, 0, Graphics.LEFT | Graphics.TOP);
-        // Mark as immutable but keep same object to avoid double-free
-        result.mutable = false;
-        return result;
+        if (source == null) throw new NullPointerException();
+        if (width <= 0 || height <= 0) throw new IllegalArgumentException();
+        if (x < 0 || y < 0 || x + width > source.width || y + height > source.height) throw new IllegalArgumentException();
+        if (transform < 0 || transform > 7) throw new IllegalArgumentException();
+        if (!source.mutable && transform == 0 && x == 0 && y == 0 && width == source.width && height == source.height) return source;
+        long handle = NativeBridge.createImageFromRegion(source.nativeHandle, x, y, width, height, transform);
+        if (handle == 0) throw new OutOfMemoryError();
+        return new Image(handle, NativeBridge.getImageWidth(handle), NativeBridge.getImageHeight(handle), false);
     }
 
     public static Image createImage(Image source) {
-        // Create mutable copy
-        Image copy = createImage(source.width, source.height);
-        Graphics g = copy.getGraphics();
-        g.drawImage(source, 0, 0, Graphics.LEFT | Graphics.TOP);
-        return copy;
+        if (source == null) throw new NullPointerException();
+        if (!source.mutable) return source;
+        return createImage(source, 0, 0, source.width, source.height, 0);
     }
 
     public static Image createRGBImage(int[] rgb, int width, int height, boolean processAlpha) {
-        Image img = createImage(width, height);
-        Graphics g = img.getGraphics();
-        g.drawRGB(rgb, 0, width, 0, 0, width, height, processAlpha);
-        return img;
+        if (rgb == null) throw new NullPointerException();
+        if (width <= 0 || height <= 0) throw new IllegalArgumentException();
+        if ((long) width * height > rgb.length) throw new ArrayIndexOutOfBoundsException();
+        long handle = NativeBridge.createImageFromRGB(rgb, width, height, processAlpha);
+        if (handle == 0) throw new OutOfMemoryError();
+        return new Image(handle, width, height, false);
     }
 
+    /** A new Graphics with default state on every call, as MIDP specifies. */
     public Graphics getGraphics() {
-        if (!mutable) {
-            throw new IllegalStateException("Image is not mutable");
-        }
-        if (cachedGraphics == null) {
-            long ctx = NativeBridge.getImageContext(nativeHandle);
-            cachedGraphics = new Graphics(ctx, width, height);
-            cachedGraphics.ownsContext = true;
-        }
-        return cachedGraphics;
+        if (!mutable) throw new IllegalStateException("Image is not mutable");
+        long ctx = NativeBridge.getImageContext(nativeHandle);
+        Graphics g = new Graphics(ctx, width, height);
+        g.ownsContext = true;
+        return g;
     }
 
     public int getWidth() { return width; }
@@ -198,6 +98,8 @@ public class Image {
 
     public void getRGB(int[] rgbData, int offset, int scanlength,
                        int x, int y, int w, int h) {
+        if (rgbData == null) throw new NullPointerException();
+        if (x < 0 || y < 0 || x + w > width || y + h > height) throw new IllegalArgumentException();
         NativeBridge.getImageRGB(nativeHandle, rgbData, offset, scanlength, x, y, w, h);
     }
 
@@ -216,7 +118,6 @@ public class Image {
         // Don't destroy cachedGraphics.nativeContext here — the Graphics
         // object may still be in use on another thread's stack.
         // Graphics.finalize() will release its own RenderContext (ownsContext=true).
-        cachedGraphics = null;
         if (nativeHandle != 0) {
             NativeBridge.destroyImage(nativeHandle);
             nativeHandle = 0;

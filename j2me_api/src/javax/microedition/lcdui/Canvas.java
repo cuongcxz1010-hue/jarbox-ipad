@@ -1,11 +1,16 @@
 package javax.microedition.lcdui;
 
+import javax.microedition.lcdui.event.CanvasEvent;
+import javax.microedition.lcdui.event.Event;
+import javax.microedition.lcdui.event.EventFilter;
+import javax.microedition.lcdui.keyboard.KeyMapper;
+
 /**
- * J2ME Canvas — the main class for custom rendering in MIDlets.
- * Uses offscreen CGBitmapContext via NativeBridge for double-buffered rendering.
+ * Canvas with the event model of J2ME Loader: repaint() only records a dirty
+ * area and queues one paint event; paint() and all input run on the event
+ * thread; serviceRepaints() paints immediately but still serialized.
  */
 public abstract class Canvas extends Displayable {
-    // Game action constants
     public static final int UP = 1;
     public static final int DOWN = 6;
     public static final int LEFT = 2;
@@ -16,7 +21,6 @@ public abstract class Canvas extends Displayable {
     public static final int GAME_C = 11;
     public static final int GAME_D = 12;
 
-    // Key code constants (negative values for special keys, as per J2ME spec)
     public static final int KEY_UP = -1;
     public static final int KEY_DOWN = -2;
     public static final int KEY_LEFT = -3;
@@ -41,174 +45,216 @@ public abstract class Canvas extends Displayable {
     public static final int KEY_STAR = 42;
     public static final int KEY_POUND = 35;
 
-    protected Canvas() { }
-    protected Canvas(boolean fullScreen) { this.fullScreen = fullScreen; }
+    private final PaintEvent paintEvent = new PaintEvent();
+    /** Guards the screen buffer: paint and flushGraphics may come from different threads. */
+    private final Object bufferLock = new Object();
 
     private long nativeContext;
     private Graphics graphics;
-    public volatile boolean repaintPending = true;
-    private boolean fullScreen = false;
-    // Dirty rect for partial repaint (J2ME clip region for paint())
-    private int clipX, clipY, clipW, clipH;
-    private boolean fullRepaint = true;
-    // Lock to prevent concurrent doPaint from game thread + Display thread
-    private final Object paintLock = new Object();
+    private volatile boolean visible;
+    private boolean sizeChangedCalled;
+    private boolean fullScreen;
 
-    // FPS limiting (matches J2ME-Loader's Canvas.limitFps)
     private static int fpsLimit;
     private long lastFrameTime = System.currentTimeMillis();
 
-    public static void setLimitFps(int fps) {
-        Canvas.fpsLimit = fps;
-    }
+    protected Canvas() { }
 
-    public static int getLimitFps() {
-        return fpsLimit;
-    }
+    /** Used by Nokia's FullCanvas. */
+    protected Canvas(boolean fullScreen) { this.fullScreen = fullScreen; }
+
+    public static void setLimitFps(int fps) { fpsLimit = fps; }
+    public static int getLimitFps() { return fpsLimit; }
+
+    // ------------------------------------------------------------
+    // Painting
+    // ------------------------------------------------------------
+
+    protected abstract void paint(Graphics g);
 
     private void limitFps() {
-        if (fpsLimit <= 0) return;
+        int limit = fpsLimit;
+        if (limit <= 0) return;
         try {
-            long millis = (1000 / fpsLimit) - (System.currentTimeMillis() - lastFrameTime);
+            long millis = (1000 / limit) - (System.currentTimeMillis() - lastFrameTime);
             if (millis > 0) Thread.sleep(millis);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            // keep going
         }
         lastFrameTime = System.currentTimeMillis();
     }
 
-    /**
-     * The abstract paint method — MIDlets override this.
-     */
-    protected abstract void paint(Graphics g);
-
-    /**
-     * Request a repaint of the entire canvas.
-     */
-    public void repaint() {
+    public final void repaint() {
         repaint(0, 0, width, height);
     }
 
-    public void repaint(int x, int y, int w, int h) {
+    public final void repaint(int x, int y, int w, int h) {
         limitFps();
-        if (!repaintPending) {
-            // First repaint request — set clip to this rect
-            clipX = x;
-            clipY = y;
-            clipW = w;
-            clipH = h;
-            fullRepaint = (x == 0 && y == 0 && w >= width && h >= height);
-        } else {
-            // Accumulate: union of dirty rects
-            int newRight = Math.max(clipX + clipW, x + w);
-            int newBottom = Math.max(clipY + clipH, y + h);
-            clipX = Math.min(clipX, x);
-            clipY = Math.min(clipY, y);
-            clipW = newRight - clipX;
-            clipH = newBottom - clipY;
-            if (clipX <= 0 && clipY <= 0 && clipW >= width && clipH >= height) {
-                fullRepaint = true;
+        boolean post;
+        synchronized (paintEvent) {
+            post = paintEvent.invalidate(x, y, x + w, y + h) && !paintEvent.isPending;
+            if (post) paintEvent.isPending = true;
+        }
+        if (post) Display.postEvent(paintEvent);
+    }
+
+    public final void serviceRepaints() {
+        Display.getEventQueue().serviceRepaints(paintEvent);
+    }
+
+    private final class PaintEvent extends Event implements EventFilter {
+        boolean isPending;
+        private int left, top, right, bottom;
+
+        /** Grow the dirty area; true when it was empty before. */
+        boolean invalidate(int l, int t, int r, int b) {
+            boolean empty = left >= right || top >= bottom;
+            if (l < 0) l = 0;
+            if (t < 0) t = 0;
+            if (r > width) r = width;
+            if (b > height) b = height;
+            if (empty) {
+                left = l; top = t; right = r; bottom = b;
+            } else {
+                if (l < left) left = l;
+                if (t < top) top = t;
+                if (r > right) right = r;
+                if (b > bottom) bottom = b;
             }
+            return empty;
         }
-        repaintPending = true;
+
+        public void process() {
+            int l, t, r, b;
+            synchronized (this) {
+                isPending = false;
+                l = left; t = top; r = right; b = bottom;
+                left = top = right = bottom = 0;
+            }
+            if (l >= r || t >= b || !visible) return;
+            paintNow(l, t, r - l, b - t);
+        }
+
+        public void recycle() { }
+        public void enterQueue() { }
+        public void leaveQueue() { }
+        public boolean placeableAfter(Event event) { return event != this; }
+        public boolean accept(Event event) { return event == this; }
     }
 
-    /**
-     * Process all pending repaints synchronously.
-     * Blocks until paint() completes, using EventQueue's callbackLock
-     * to ensure serialized access (matching J2ME-Loader behavior).
-     */
-    public void serviceRepaints() {
-        if (repaintPending) {
-            doPaint();
+    private void paintNow(int x, int y, int w, int h) {
+        synchronized (bufferLock) {
+            if (nativeContext == 0) return;
+            graphics.reset(x, y, w, h);
+            try {
+                paint(graphics);
+            } catch (Throwable t) {
+                System.out.println("[Canvas] Error in paint(): " + t);
+                t.printStackTrace();
+            }
+            NativeBridge.flushToScreen(nativeContext);
         }
     }
 
-    // TODO: Use EventQueue.serviceRepaints() for proper blocking when
-    // called from a non-event thread. Current implementation is synchronous
-    // which works for most J2ME games that call serviceRepaints() from
-    // their game loop thread.
-
-    public void setFullScreenMode(boolean mode) {
-        this.fullScreen = mode;
-    }
-
-    // --- Internal rendering ---
-
-    /**
-     * Initialize the offscreen context. Called when canvas becomes current.
-     */
-    void initContext() {
-        if (nativeContext == 0) {
-            nativeContext = NativeBridge.createContext(width, height);
-            graphics = new Graphics(nativeContext, width, height);
-        }
-    }
-
-    // GameCanvas — copy offscreen buffer to Canvas context and flush to screen.
-    // Synchronized on paintLock to prevent concurrent CGContext access.
-    public void flushBuffer(Image image, int x, int y, int width, int height) {
+    /** GameCanvas.flushGraphics: copy the off-screen image to the screen. */
+    public void flushBuffer(Image image, int x, int y, int w, int h) {
         limitFps();
-        if (width <= 0 || height <= 0 ||
-                x + width < 0 || y + height < 0 ||
-                x >= this.width || y >= this.height) {
-            return;
-        }
-        synchronized (paintLock) {
-            if (nativeContext == 0) initContext();
-            graphics.reset(0, 0, this.width, this.height);
+        if (w <= 0 || h <= 0 || x + w < 0 || y + h < 0 || x >= width || y >= height) return;
+        synchronized (bufferLock) {
+            if (nativeContext == 0 || !visible) return;
+            graphics.reset(x, y, w, h);
             graphics.drawImage(image, 0, 0, Graphics.LEFT | Graphics.TOP);
             NativeBridge.flushToScreen(nativeContext);
         }
     }
 
-    // ExtendedImage (Siemens) — copy image to Canvas context at position and flush.
+    /** Siemens ExtendedImage: draw an image at a position and show it. */
     public void flushBuffer(Image image, int x, int y) {
         limitFps();
-        synchronized (paintLock) {
-            if (nativeContext == 0) initContext();
-            graphics.reset(0, 0, this.width, this.height);
+        synchronized (bufferLock) {
+            if (nativeContext == 0 || !visible) return;
+            graphics.reset(0, 0, width, height);
             graphics.drawImage(image, x, y, Graphics.LEFT | Graphics.TOP);
             NativeBridge.flushToScreen(nativeContext);
         }
     }
 
-    /**
-     * Perform the paint cycle: clear → paint → flush.
-     * Synchronized on paintLock to prevent concurrent CGContext access
-     * from Display event loop thread and game thread.
-     */
-    public void doPaint() {
-        synchronized (paintLock) {
-            if (nativeContext == 0) initContext();
-            repaintPending = false;
-            graphics.reset(clipX, clipY, clipW, clipH);
-            paint(graphics);
-            NativeBridge.flushToScreen(nativeContext);
-            // Reset for next frame
-            fullRepaint = true;
-            clipX = 0; clipY = 0; clipW = width; clipH = height;
-        }
-    }
+    // ------------------------------------------------------------
+    // Show / hide (event thread)
+    // ------------------------------------------------------------
 
-    void destroyContext() {
-        synchronized (paintLock) {
-            if (nativeContext != 0) {
-                NativeBridge.destroyContext(nativeContext);
-                nativeContext = 0;
-                graphics = null;
+    @Override
+    void show() {
+        synchronized (bufferLock) {
+            if (nativeContext == 0) {
+                nativeContext = NativeBridge.createContext(width, height);
+                graphics = new Graphics(nativeContext, width, height);
             }
         }
+        visible = true;
+        refresh();
+        NativeBridge.showCanvas();
+        if (!sizeChangedCalled) {
+            sizeChangedCalled = true;
+            callSizeChanged();
+        }
+        try {
+            doShowNotify();
+        } catch (Throwable t) {
+            System.out.println("[Canvas] Error in showNotify(): " + t);
+        }
+        repaint();
     }
 
-    // --- Capabilities ---
+    private void callSizeChanged() {
+        try {
+            doSizeChanged(width, height);
+        } catch (Throwable t) {
+            System.out.println("[Canvas] Error in sizeChanged(): " + t);
+        }
+    }
+
+    @Override
+    void hide() {
+        if (!visible) return;
+        visible = false;
+        try {
+            doHideNotify();
+        } catch (Throwable t) {
+            System.out.println("[Canvas] Error in hideNotify(): " + t);
+        }
+    }
+
+    /** Publish the labels of the commands of this canvas (shown in the app menu). */
+    @Override
+    void refresh() {
+        if (!visible) return;
+        ScreenWriter out = new ScreenWriter();
+        out.beginObject();
+        out.field("kind", "canvas");
+        out.commands("commands", getCommands());
+        out.endObject();
+        NativeBridge.setCanvasCommands(out.toString());
+    }
+
+    public boolean isShown() { return visible && super.isShown(); }
+
+    public void setFullScreenMode(boolean mode) { fullScreen = mode; }
+
+    public boolean isFullScreen() { return fullScreen; }
+
+    // ------------------------------------------------------------
+    // Capabilities
+    // ------------------------------------------------------------
 
     public boolean hasPointerEvents() { return true; }
     public boolean hasPointerMotionEvents() { return true; }
     public boolean hasRepeatEvents() { return true; }
     public boolean isDoubleBuffered() { return true; }
 
-    // --- Input ---
+    // ------------------------------------------------------------
+    // Input
+    // ------------------------------------------------------------
 
     protected void keyPressed(int keyCode) { }
     protected void keyReleased(int keyCode) { }
@@ -219,66 +265,41 @@ public abstract class Canvas extends Displayable {
     protected void showNotify() { }
     protected void hideNotify() { }
 
-    // Methods called by CanvasEvent.process() (matching J2ME-Loader's Canvas API)
-    public void doKeyPressed(int keyCode) { postKeyPressed(keyCode); }
-    public void doKeyReleased(int keyCode) { postKeyReleased(keyCode); }
-    public void doKeyRepeated(int keyCode) { postKeyRepeated(keyCode); }
+    /** Native key code → event queue. */
+    public void postKeyEvent(int type, int keyCode) {
+        Display.postEvent(CanvasEvent.getInstance(this, type, KeyMapper.convertKeyCode(keyCode)));
+    }
 
-    // Overridden by GameCanvas for suppressCommands logic
-    public void postKeyPressed(int keyCode) { keyPressed(keyCode); }
-    public void postKeyReleased(int keyCode) { keyReleased(keyCode); }
-    public void postKeyRepeated(int keyCode) { keyRepeated(keyCode); }
-    public void pointerPressed(int pointer, float x, float y) { pointerPressed(Math.round(x), Math.round(y)); }
-    public void pointerDragged(int pointer, float x, float y) { pointerDragged(Math.round(x), Math.round(y)); }
-    public void pointerReleased(int pointer, float x, float y) { pointerReleased(Math.round(x), Math.round(y)); }
+    public void postPointerEvent(int type, int x, int y) {
+        Display.postEvent(CanvasEvent.getInstance(this, type, 0, (float) x, (float) y));
+    }
+
+    // Called by CanvasEvent on the event thread; GameCanvas overrides the key methods.
+    public void doKeyPressed(int keyCode) { keyPressed(keyCode); }
+    public void doKeyReleased(int keyCode) { keyReleased(keyCode); }
+    public void doKeyRepeated(int keyCode) { keyRepeated(keyCode); }
+    public void doPointerPressed(int x, int y) { pointerPressed(x, y); }
+    public void doPointerDragged(int x, int y) { pointerDragged(x, y); }
+    public void doPointerReleased(int x, int y) { pointerReleased(x, y); }
     public void doShowNotify() { showNotify(); }
     public void doHideNotify() { hideNotify(); }
     public void doSizeChanged(int w, int h) { sizeChanged(w, h); }
 
-    // Public dispatch — called from Display event loop
-    public void dispatchPointerEvent(int type, int x, int y) {
-        switch (type) {
-            case 0: pointerPressed(x, y); break;
-            case 1: pointerDragged(x, y); break;
-            case 2: pointerReleased(x, y); break;
-        }
-    }
-
-    public void dispatchKeyEvent(int type, int keyCode) {
-        switch (type) {
-            case 3: keyPressed(keyCode); break;
-            case 4: keyReleased(keyCode); break;
-            case 5: keyRepeated(keyCode); break;
-        }
-    }
-
     public int getGameAction(int keyCode) {
-        switch (keyCode) {
-            case KEY_UP: case KEY_NUM2: return UP;
-            case KEY_DOWN: case KEY_NUM8: return DOWN;
-            case KEY_LEFT: case KEY_NUM4: return LEFT;
-            case KEY_RIGHT: case KEY_NUM6: return RIGHT;
-            case KEY_FIRE: case KEY_NUM5: return FIRE;
-            case KEY_NUM7: return GAME_A;
-            case KEY_NUM9: return GAME_B;
-            case KEY_STAR: return GAME_C;
-            case KEY_POUND: return GAME_D;
-            default: return 0;
-        }
+        int action = KeyMapper.getGameAction(keyCode);
+        if (action == Integer.MAX_VALUE) throw new IllegalArgumentException("unknown key code " + keyCode);
+        return action;
     }
 
     public int getKeyCode(int gameAction) {
-        switch (gameAction) {
-            case UP: return KEY_NUM2;
-            case DOWN: return KEY_NUM8;
-            case LEFT: return KEY_NUM4;
-            case RIGHT: return KEY_NUM6;
-            case FIRE: return KEY_NUM5;
-            default: return 0;
-        }
+        int code = KeyMapper.getKeyCode(gameAction);
+        if (code == Integer.MAX_VALUE) throw new IllegalArgumentException("unknown game action " + gameAction);
+        return code;
     }
 
     public String getKeyName(int keyCode) {
-        return "KEY_" + keyCode;
+        String name = KeyMapper.getKeyName(keyCode);
+        if (name == null) throw new IllegalArgumentException("unknown key code " + keyCode);
+        return name;
     }
 }

@@ -22,6 +22,11 @@ int jvm_bridge_init(const char *res_root, const char *save_root, const char *mid
                     int screen_width, int screen_height, int render_3d_scale,
                     int fps_limit);
 
+/// Per-game settings, applied by the next jvm_bridge_init.
+void jvm_bridge_set_property(const char *key, const char *value);
+void jvm_bridge_set_heap_limit(int megabytes);
+void jvm_bridge_set_font_sizes(int small, int medium, int large);
+
 /// Run a MIDlet from a JAR file via MIDletRunner.
 /// @param midlet_jar_path Path to the MIDlet JAR file
 /// @return 0 on success, non-zero on failure

@@ -29,8 +29,7 @@ class GameViewController: UIViewController {
     private let profiles: ControlProfileStore
 
     private let emulatorView = EmulatorView()
-    private lazy var formView = FormView()
-    private lazy var listView = J2MEListView()
+    private let screenView = ScreenView()
     private(set) var placeholderIconView: UIImageView?
 
     // On-screen keys (one overlay for all of them) and the JarBox menu key
@@ -38,15 +37,16 @@ class GameViewController: UIViewController {
     private var menuButton: UIButton { keyboard.menuButton }
     private let autoPressBadge = UIButton(type: .system)
     private let keyInputView = KeyInputView()
-    private var textBoxDelegate: J2METextFieldDelegate?
     private var editor: KeyLayoutEditorView?
     private var lastDefaultFrames: [String: CGRect] = [:]
     private var appliedLook: (KeyTheme, KeyShape)?
 
-    private var showingNativeScreen = false          // a Form or List is shown instead of the canvas
+    private var showingNativeScreen = false          // a Form, List or TextBox is shown instead of the canvas
+    private var keyboardOverlap: CGFloat = 0         // how much of the safe area the iOS keyboard covers
     private var systemKeyboardVisible = false        // iOS keyboard on screen → hide the phone keys
     private var canvasCommands: [(label: String, id: Int32)] = []
     private var alertTimeoutWork: DispatchWorkItem?
+    private weak var shownAlert: UIAlertController?
 
     // Idle tools
     private var idleOverlay: IdleOverlayView?
@@ -110,6 +110,12 @@ class GameViewController: UIViewController {
     override var prefersHomeIndicatorAutoHidden: Bool { true }
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { .all }
 
+    /// CI only: turn the simulator to a given orientation.
+    func autoTestRotate(_ target: GameOrientation) {
+        settings.orientation = target
+        requestOrientationUpdate()
+    }
+
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         switch settings.orientation {
         case .landscape: return .landscape
@@ -135,11 +141,10 @@ class GameViewController: UIViewController {
         emulatorView.canvasWidth = canvasWidth
         emulatorView.canvasHeight = canvasHeight
 
-        for v: UIView in [emulatorView, keyInputView, formView, listView, keyboard, autoPressBadge] {
+        for v: UIView in [emulatorView, keyInputView, screenView, keyboard, autoPressBadge] {
             view.addSubview(v)
         }
-        formView.isHidden = true
-        listView.isHidden = true
+        screenView.isHidden = true
 
         setupMenuButton()
         setupAutoPressBadge()
@@ -174,6 +179,8 @@ class GameViewController: UIViewController {
         let nc = NotificationCenter.default
         nc.addObserver(self, selector: #selector(keyboardWillShow), name: UIResponder.keyboardWillShowNotification, object: nil)
         nc.addObserver(self, selector: #selector(keyboardWillHide), name: UIResponder.keyboardWillHideNotification, object: nil)
+        nc.addObserver(self, selector: #selector(appEnteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        nc.addObserver(self, selector: #selector(appEnteredForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
         nc.addObserver(self, selector: #selector(appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         nc.addObserver(self, selector: #selector(appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         // Device getting hot -> lower the frame rate (posted on any thread; handled on main)
@@ -191,7 +198,9 @@ class GameViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()   // hardware keyboard → game keys
+        if let forced = AutoTest.forcedOrientation { autoTestRotate(forced) }
         startGame()
+        AutoTest.runScript(on: self)
     }
 
     /// Apply the saved display / control settings to the running screen.
@@ -257,14 +266,15 @@ class GameViewController: UIViewController {
             let panel = ControlCatalog.portraitPanelHeight(metrics, preset: preset)
             area.size.height = max(safe.height * 0.42, safe.height - panel)
         }
+        // Typing into the game: keep the picture above the iOS keyboard
+        if keyboardOverlap > 0 { area.size.height = max(120, area.height - keyboardOverlap) }
         let screen = gameFrame(in: area.insetBy(dx: 2, dy: 2))
         if !portrait && keysShown {
             metrics = ControlCatalog.fitBesideGame(metrics, safe: safe, game: screen)
         }
         emulatorView.frame = screen
         placeholderIconView?.center = CGPoint(x: screen.midX, y: screen.midY)
-        formView.frame = view.bounds
-        listView.frame = view.bounds
+        screenView.frame = view.bounds
         keyInputView.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
 
         // Keys: default place, or where the user put them in this profile
@@ -563,17 +573,8 @@ class GameViewController: UIViewController {
             self.settings.keepScreenOn = !self.settings.keepScreenOn
             self.applySettings()
         }
-        let background = UIAction(title: "Giữ chạy nền (thử nghiệm)",
-                                  subtitle: "Không đảm bảo — iOS có thể vẫn dừng app",
-                                  image: UIImage(systemName: "moon.circle"),
-                                  state: SessionKeeper.backgroundAudioEnabled ? .on : .off) { [weak self] _ in
-            let enable = !SessionKeeper.backgroundAudioEnabled
-            SessionKeeper.shared.setBackgroundAudio(enable)
-            if enable { self?.explainBackgroundLimits() }
-        }
-
         return UIMenu(title: "Treo game", image: UIImage(systemName: "hourglass"),
-                      children: [idle, guide, idleFpsMenu, autoToggle, keyMenu, intervalMenu, keepOn, background])
+                      children: [idle, guide, idleFpsMenu, autoToggle, keyMenu, intervalMenu, keepOn])
     }
 
     private func promptProfileName(title: String, initial: String, completion: @escaping (String) -> Void) {
@@ -814,7 +815,7 @@ class GameViewController: UIViewController {
 
     private func applyFpsOverride() {
         let cap = currentFpsCap()
-        j2me_set_fps_override(Int32(cap == fpsLimit ? -1 : cap))
+        j2me_input_post_key(Int32(J2ME_APP_FPS_OVERRIDE), Int32(cap == fpsLimit ? -1 : cap))
     }
 
     /// Menu → Treo máy ổn định: first time without Guided Access, offer the guide.
@@ -920,21 +921,6 @@ class GameViewController: UIViewController {
         if autoPressTimer != nil { startAutoPress() }
     }
 
-    private func explainBackgroundLimits() {
-        let alert = UIAlertController(
-            title: "Giữ chạy nền (thử nghiệm)",
-            message: """
-            Khi bạn thoát ra màn hình chính hoặc khóa máy, app sẽ cố chạy tiếp bằng chế độ âm thanh nền.
-
-            Đây không phải tính năng chắc chắn: iOS vẫn có thể dừng app khi thiếu bộ nhớ, khi có cuộc gọi hoặc sau thời gian dài; tốn pin hơn; App Store không cho phép cách này (bản cài qua Sideloadly thì dùng được).
-
-            Cách treo ổn định nhất: để game mở, bật "Giữ màn hình luôn sáng" và dùng "Treo máy ổn định" (Menu → Treo game).
-            """,
-            preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Đã hiểu", style: .default))
-        present(alert, animated: true)
-    }
-
     // MARK: - Screenshot & help
 
     private func shareScreenshot() {
@@ -1005,14 +991,30 @@ class GameViewController: UIViewController {
         }
     }
 
-    @objc private func keyboardWillShow() {
+    @objc private func keyboardWillShow(_ note: Notification) {
         systemKeyboardVisible = true
+        if let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
+            let keyboardTop = view.convert(end, from: nil).minY
+            let safeBottom = view.safeAreaLayoutGuide.layoutFrame.maxY
+            keyboardOverlap = max(0, safeBottom - keyboardTop)
+        }
         view.setNeedsLayout()
     }
 
     @objc private func keyboardWillHide() {
         systemKeyboardVisible = false
+        keyboardOverlap = 0
         view.setNeedsLayout()
+    }
+
+    /// The game is told about real background transitions only; a Control
+    /// Centre swipe (resign active) must not pause it.
+    @objc private func appEnteredBackground() {
+        j2me_input_post_key(Int32(J2ME_APP_BACKGROUND), 0)
+    }
+
+    @objc private func appEnteredForeground() {
+        j2me_input_post_key(Int32(J2ME_APP_FOREGROUND), 0)
     }
 
     @objc private func appWillResignActive() {
@@ -1145,6 +1147,7 @@ class GameViewController: UIViewController {
         let saveRoot = docs + "/Games Data/" + gameId
         try? FileManager.default.createDirectory(atPath: saveRoot, withIntermediateDirectories: true)
 
+        settings.applyToJVM()
         let initResult = jvm_bridge_init(resRoot, saveRoot, jarPath,
                                          Int32(canvasWidth),
                                          Int32(canvasHeight),
@@ -1166,133 +1169,74 @@ class GameViewController: UIViewController {
     // ============================================================
 
     func showCanvasView() {
+        dismissShownAlert()
         showingNativeScreen = false
         emulatorView.isHidden = false
-        formView.isHidden = true
-        listView.isHidden = true
-        var commands: [(label: String, id: Int32)] = []
-        for i in 0..<j2me_ui_get_command_count() {
-            commands.append((label: String(cString: j2me_ui_get_command_label(i)), id: j2me_ui_get_command_id(i)))
-        }
-        canvasCommands = commands
+        screenView.isHidden = true
+        screenView.reset()
         view.setNeedsLayout()
         if !keyInputView.isFirstResponder { becomeFirstResponder() }
     }
 
-    func showFormView() {
-        didShowContent = true
-        showingNativeScreen = true
-        keyboard.releaseAll()
-        formView.buildFromNativeData()
-        formView.isHidden = false
-        emulatorView.isHidden = true
-        listView.isHidden = true
-        view.setNeedsLayout()
+    func setCanvasCommands(_ json: String) {
+        guard let doc = parseDocument(json) else { return }
+        canvasCommands = (doc["commands"] as? [[String: Any]] ?? []).map {
+            (label: $0["label"] as? String ?? "", id: Int32($0["id"] as? Int ?? 0))
+        }
     }
 
-    func showListView() {
-        didShowContent = true
-        showingNativeScreen = true
-        keyboard.releaseAll()
-        listView.buildFromNativeData()
-        listView.isHidden = false
-        emulatorView.isHidden = true
-        formView.isHidden = true
-        view.setNeedsLayout()
-    }
-
-    /// MIDP TextBox → iOS text-entry dialog with the system keyboard.
-    func showTextBox() {
+    /// A Form, List, TextBox or Alert sent by the game.
+    func showScreen(_ json: String) {
+        guard let doc = parseDocument(json) else { return }
         didShowContent = true
         keyboard.releaseAll()
         keyInputView.resignFirstResponder()
-
-        let title = String(cString: j2me_ui_get_form_title())
-        let hasField = j2me_ui_get_form_item_count() > 0
-        let text = hasField ? String(cString: j2me_ui_get_form_item_text(0)) : ""
-        let maxSize = hasField ? Int(j2me_ui_get_form_item_param1(0)) : 0
-        let constraints = hasField ? Int(j2me_ui_get_form_item_param2(0)) : 0
-
-        var commands: [(label: String, id: Int32, type: Int32)] = []
-        let cmdCount = j2me_ui_get_command_count()
-        for i in 0..<cmdCount {
-            commands.append((String(cString: j2me_ui_get_command_label(Int32(i))),
-                             j2me_ui_get_command_id(Int32(i)),
-                             j2me_ui_get_command_type(Int32(i))))
+        if doc["kind"] as? String == "alert" {
+            showAlert(doc)
+            return
         }
-        if commands.isEmpty { commands = [("OK", -1, 4)] }
-
-        let alert = UIAlertController(title: title.isEmpty ? "Nhập" : title, message: nil, preferredStyle: .alert)
-        let delegate = J2METextFieldDelegate(maxLength: maxSize)
-        textBoxDelegate = delegate
-        alert.addTextField { field in
-            field.text = text
-            field.applyJ2MEConstraints(constraints)
-            field.delegate = delegate
-        }
-
-        // Store the typed text, then fire the command (Java reads the text first)
-        let submit: (Int32) -> Void = { [weak alert] cmdId in
-            j2me_ui_set_text_result(0, alert?.textFields?.first?.text ?? "")
-            j2me_input_post_key(Int32(J2ME_UI_COMMAND_ACTION), cmdId)
-        }
-
-        var usedCancel = false
-        var preferred: UIAlertAction?
-        var preferredId: Int32?
-        for cmd in commands {
-            // Command types: 2 = BACK, 3 = CANCEL, 4 = OK (only one cancel-style button allowed)
-            let isCancel = (cmd.type == 2 || cmd.type == 3) && !usedCancel
-            if isCancel { usedCancel = true }
-            let action = UIAlertAction(title: cmd.label, style: isCancel ? .cancel : .default) { _ in
-                submit(cmd.id)
-            }
-            alert.addAction(action)
-            if !isCancel && (preferred == nil || cmd.type == 4) {
-                preferred = action
-                preferredId = cmd.id
-            }
-        }
-        alert.preferredAction = preferred
-        if let okId = preferredId {
-            delegate.onReturn = { [weak alert] in
-                submit(okId)
-                alert?.dismiss(animated: true)
-            }
-        }
-        present(alert, animated: true)
+        dismissShownAlert()
+        showingNativeScreen = true
+        screenView.show(doc)
+        screenView.isHidden = false
+        emulatorView.isHidden = true
+        view.setNeedsLayout()
     }
 
-    func showAlert() {
-        didShowContent = true
-        let title = String(cString: j2me_ui_get_form_title())
-        let text = String(cString: j2me_ui_get_alert_text())
+    private func parseDocument(_ json: String) -> [String: Any]? {
+        guard let data = json.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
 
-        let alert = UIAlertController(title: title, message: text, preferredStyle: .alert)
-
+    private func dismissShownAlert() {
         alertTimeoutWork?.cancel()
         alertTimeoutWork = nil
+        if let shownAlert, shownAlert.presentingViewController != nil { shownAlert.dismiss(animated: false) }
+        shownAlert = nil
+    }
 
-        let cmdCount = j2me_ui_get_command_count()
-        if cmdCount == 0 {
+    private func showAlert(_ doc: [String: Any]) {
+        dismissShownAlert()
+        let alert = UIAlertController(title: doc["title"] as? String, message: doc["text"] as? String, preferredStyle: .alert)
+        let commands = doc["commands"] as? [[String: Any]] ?? []
+        if commands.isEmpty {
             alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
                 self?.alertTimeoutWork?.cancel()
                 j2me_input_post_key(Int32(J2ME_UI_ALERT_DISMISSED), 0)
             })
         } else {
-            for i in 0..<cmdCount {
-                let label = String(cString: j2me_ui_get_command_label(Int32(i)))
-                let cmdId = j2me_ui_get_command_id(Int32(i))
-                alert.addAction(UIAlertAction(title: label, style: .default) { [weak self] _ in
+            for command in commands {
+                let id = Int32(command["id"] as? Int ?? 0)
+                alert.addAction(UIAlertAction(title: command["label"] as? String, style: .default) { [weak self] _ in
                     self?.alertTimeoutWork?.cancel()
-                    j2me_input_post_key(Int32(J2ME_UI_COMMAND_ACTION), cmdId)
+                    j2me_input_post_key(Int32(J2ME_UI_COMMAND_ACTION), id)
                 })
             }
         }
-
         present(alert, animated: true)
+        shownAlert = alert
 
-        let timeout = j2me_ui_get_alert_timeout()
+        let timeout = doc["timeout"] as? Int ?? -2
         if timeout > 0 {
             let work = DispatchWorkItem { [weak alert] in
                 alert?.dismiss(animated: true) {
@@ -1303,6 +1247,16 @@ class GameViewController: UIViewController {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(timeout) / 1000.0, execute: work)
         }
     }
+
+    /// The MIDlet could not start: tell the user and offer to leave.
+    func showFailure(_ message: String) {
+        print("[Swift] MIDlet failure: \(message)")
+        let alert = UIAlertController(title: "Game không chạy được", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Thoát game", style: .destructive) { [weak self] _ in
+            self?.exitGame()
+        })
+        present(alert, animated: true)
+    }
 }
 
 // MARK: - Game UI callback (global)
@@ -1310,14 +1264,14 @@ class GameViewController: UIViewController {
 private(set) weak var activeGameViewController: GameViewController?
 
 let gameUICallback: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void = { action, data in
+    let text = data.map { String(cString: $0) } ?? ""
     DispatchQueue.main.async {
         guard let vc = activeGameViewController else { return }
         switch action {
-        case Int32(J2ME_UI_ACTION_SHOW_CANVAS):  vc.showCanvasView()
-        case Int32(J2ME_UI_ACTION_SHOW_FORM):    vc.showFormView()
-        case Int32(J2ME_UI_ACTION_SHOW_LIST):    vc.showListView()
-        case Int32(J2ME_UI_ACTION_SHOW_ALERT):   vc.showAlert()
-        case Int32(J2ME_UI_ACTION_SHOW_TEXTBOX): vc.showTextBox()
+        case Int32(J2ME_UI_ACTION_SHOW_CANVAS):     vc.showCanvasView()
+        case Int32(J2ME_UI_ACTION_SHOW_SCREEN):     vc.showScreen(text)
+        case Int32(J2ME_UI_ACTION_CANVAS_COMMANDS): vc.setCanvasCommands(text)
+        case Int32(J2ME_UI_ACTION_FAILURE):         vc.showFailure(text)
         default: break
         }
     }

@@ -100,6 +100,7 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
     }
 
     private var pendingResumeName: String?
+    private var autoStarted = false
 
     /// Called once the game list is known (the scan runs in the background).
     private func offerResumeIfReady() {
@@ -393,6 +394,11 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
                 if self.model.games != entries { self.model.games = entries }
                 self.model.scanned = true
                 self.offerResumeIfReady()
+                if let name = AutoTest.autorunJarName, !self.autoStarted,
+                   let game = entries.first(where: { $0.fileName == name }) {
+                    self.autoStarted = true
+                    self.launch(game)
+                }
                 print("[Swift] Found \(entries.count) MIDlet JARs in \(gamesDir)")
             }
         }

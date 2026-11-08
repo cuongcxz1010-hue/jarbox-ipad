@@ -24,6 +24,7 @@ public class NativeBridge {
     public static native void drawArc(long ctx, int x, int y, int w, int h, int sa, int aa);
     public static native void fillRoundRect(long ctx, int x, int y, int w, int h, int aw, int ah);
     public static native void drawRoundRect(long ctx, int x, int y, int w, int h, int aw, int ah);
+    public static native void fillTriangle(long ctx, int x1, int y1, int x2, int y2, int x3, int y3);
 
     // Text
     public static native void setFont(long ctx, int face, int style, int size);
@@ -40,6 +41,10 @@ public class NativeBridge {
 
     // Image
     public static native long createMutableImage(int w, int h);
+    public static native long createFilledImage(int w, int h, int argb);
+    public static native long createImageFromRGB(int[] rgb, int w, int h, boolean processAlpha);
+    public static native long createImageFromRegion(long img, int x, int y, int w, int h, int transform);
+    public static native String imagePngBase64(long img);
     public static native long createImageFromData(byte[] data, int offset, int length);
     public static native void destroyImage(long img);
     public static native int getImageWidth(long img);
@@ -52,32 +57,25 @@ public class NativeBridge {
         int scanlength, int x, int y, int w, int h, int processAlpha);
     public static native void getImageRGB(long img, int[] rgbData, int offset,
         int scanlength, int x, int y, int w, int h);
+    public static native void getContextRGB(long ctx, int[] rgbData, int offset,
+        int scanlength, int x, int y, int w, int h);
     public static native void fillPolygon(long ctx, int[] xPoints, int[] yPoints, int nPoints);
     public static native void drawPolygon(long ctx, int[] xPoints, int[] yPoints, int nPoints);
     public static native void copyArea(long ctx, int xSrc, int ySrc, int w, int h, int xDst, int yDst);
 
-    // Input
-    public static native int[] pollInputEvent();
-    /** True when an input event is waiting (cheap; no allocation). */
-    public static native boolean hasInput();
+    // Input: blocks up to timeoutMs; {type, x, y, keyCode} or null
+    public static native int[] waitInputEvent(int timeoutMs);
+    public static native void wakeInput();
 
     // Lifecycle — check if native side requested MIDlet stop
     public static native boolean isStopRequested();
+    public static native void reportFailure(String message);
 
-    // UI (Forms/Lists/Alerts)
-    public static native void formBegin(String title, int type);
-    public static native void formAddStringItem(String label, String text, int appearance);
-    public static native void formAddTextField(String label, String text, int maxSize, int constraints);
-    public static native void formAddCommand(String label, int type, int priority, int id);
-    public static native void formShow();
+    // High-level screens: one JSON document per screen (see ScreenWriter)
+    public static native void showScreen(String json);
     public static native void showCanvas();
-    public static native void listAddItem(String text);
-    public static native void setListType(int type);
-    public static native void setAlertText(String text, int timeout);
-    /** Text typed natively into TextBox / Form TextField item {@code index} since it was shown, or null. */
+    public static native void setCanvasCommands(String json);
     public static native String takeTextResult(int index);
-    /** Frame-rate cap requested by the app at runtime: -1 = none, 0 = unlimited, n = n fps. */
-    public static native int getFpsOverride();
 
     // Audio — WAV/MP3 (AVAudioPlayer)
     public static native long audioCreatePlayer(byte[] data);

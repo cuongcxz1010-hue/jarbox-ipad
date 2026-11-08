@@ -1,0 +1,88 @@
+name: Simulator test
+
+# Builds the app for the iOS Simulator, runs the conformance MIDlet and a demo
+# on an iPad and an iPhone simulator, and keeps screenshots and logs.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'rebuild**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: simulator-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Select newest Xcode 26
+        run: |
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -viE 'beta|release_candidate' | sort -V | tail -1 || true)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC"; fi
+          xcodebuild -version
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build J2ME API and test MIDlets
+        run: |
+          set -e
+          bash j2me_api/build.sh
+          mkdir -p "$RUNNER_TEMP/jars"
+          python3 test_midlet/selftest/build.py J2MEEmulator/Resources/jars/minijvm_rt.jar J2MEEmulator/Resources/jars/j2me_api.jar "$RUNNER_TEMP/jars/selftest.jar"
+          python3 test_midlet/demo/build.py J2MEEmulator/Resources/jars/minijvm_rt.jar J2MEEmulator/Resources/jars/j2me_api.jar "$RUNNER_TEMP/jars/demo.jar"
+
+      - name: Check the MIDP / CLDC API surface
+        run: |
+          if [ -d test_midlet/api_stubs ]; then
+            java tools/ApiCheck.java spec test_midlet/api_stubs/*.jar -- J2MEEmulator/Resources/jars/j2me_api.jar J2MEEmulator/Resources/jars/minijvm_rt.jar | tail -5
+          fi
+
+      - name: Build for the Simulator
+        run: |
+          LOG="$RUNNER_TEMP/xcodebuild.log"
+          if ! xcodebuild \
+              -project J2MEEmulator.xcodeproj \
+              -scheme J2MEEmulator \
+              -configuration Release \
+              -sdk iphonesimulator \
+              -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+              ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
+              CODE_SIGNING_ALLOWED=NO \
+              build > "$LOG" 2>&1; then
+            echo "::group::Compiler errors"
+            grep -n -E "error:|fatal error" "$LOG" | head -100 || true
+            echo "::endgroup::"
+            tail -60 "$LOG"
+            exit 1
+          fi
+          tail -3 "$LOG"
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphonesimulator/JarBox.app"
+          cp J2MEEmulator/Resources/jars/minijvm_rt.jar "$APP/minijvm_rt.jar"
+          cp J2MEEmulator/Resources/jars/j2me_api.jar "$APP/j2me_api.jar"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+
+      - name: Run in the Simulator
+        run: bash tools/ci/simulator_test.sh "$APP" "$RUNNER_TEMP/jars" "$RUNNER_TEMP/results"
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-results
+          path: ${{ runner.temp }}/results
+          if-no-files-found: ignore

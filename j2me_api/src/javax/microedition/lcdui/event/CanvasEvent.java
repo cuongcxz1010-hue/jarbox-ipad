@@ -1,29 +1,9 @@
-/*
- * Copyright 2012 Kulikov Dmitriy
- * Copyright 2017 Nikita Shakarun
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package javax.microedition.lcdui.event;
-
-
 
 import javax.microedition.lcdui.Canvas;
 import javax.microedition.util.ArrayStack;
 
 public class CanvasEvent extends Event {
-	private static final String TAG = CanvasEvent.class.getName();
-
 	private static final ArrayStack<CanvasEvent> recycled = new ArrayStack<>();
 
 	public static final int KEY_PRESSED = 0;
@@ -32,26 +12,13 @@ public class CanvasEvent extends Event {
 	public static final int POINTER_PRESSED = 3;
 	public static final int POINTER_DRAGGED = 4;
 	public static final int POINTER_RELEASED = 5;
-	public static final int SHOW_NOTIFY = 6;
-	public static final int HIDE_NOTIFY = 7;
-	public static final int SIZE_CHANGED = 8;
 
-	private static final int[] enqueued = new int[9];
+	private static final int[] enqueued = new int[6];
 
 	private Canvas canvas;
 	private int eventType;
-
 	private int keyCode;
-
-	private int pointer;
-	private float x, y;
-
-	private int width;
-	private int height;
-
-	public static Event getInstance(Canvas canvas, int eventType) {
-		return obtain(canvas, eventType);
-	}
+	private int x, y;
 
 	public static Event getInstance(Canvas canvas, int eventType, int keyCode) {
 		CanvasEvent instance = obtain(canvas, eventType);
@@ -61,21 +28,16 @@ public class CanvasEvent extends Event {
 
 	public static Event getInstance(Canvas canvas, int eventType, int pointer, float x, float y) {
 		CanvasEvent instance = obtain(canvas, eventType);
-		instance.pointer = pointer;
-		instance.x = x;
-		instance.y = y;
-		return instance;
-	}
-
-	public static Event getInstance(Canvas canvas, int eventType, int width, int height) {
-		CanvasEvent instance = obtain(canvas, eventType);
-		instance.width = width;
-		instance.height = height;
+		instance.x = Math.round(x);
+		instance.y = Math.round(y);
 		return instance;
 	}
 
 	private static CanvasEvent obtain(Canvas canvas, int eventType) {
-		CanvasEvent instance = recycled.pop();
+		CanvasEvent instance;
+		synchronized (recycled) {
+			instance = recycled.pop();
+		}
 		if (instance == null) {
 			instance = new CanvasEvent();
 		}
@@ -86,85 +48,27 @@ public class CanvasEvent extends Event {
 
 	@Override
 	public void process() {
-		switch (eventType) {
-			case KEY_PRESSED:
-				try {
-					canvas.doKeyPressed(keyCode);
-				} catch (Exception e) {
-					System.out.println("keyPressed: " + e.getMessage());
-				}
-				break;
-
-			case KEY_REPEATED:
-				try {
-					canvas.doKeyRepeated(keyCode);
-				} catch (Exception e) {
-					System.out.println("keyRepeated: " + e.getMessage());
-				}
-				break;
-
-			case KEY_RELEASED:
-				try {
-					canvas.doKeyReleased(keyCode);
-				} catch (Exception e) {
-					System.out.println("keyReleased: " + e.getMessage());
-				}
-				break;
-
-			case POINTER_PRESSED:
-				try {
-					canvas.pointerPressed(pointer, x, y);
-				} catch (Exception e) {
-					System.out.println("pointerPressed: " + e.getMessage());
-				}
-				break;
-
-			case POINTER_DRAGGED:
-				try {
-					canvas.pointerDragged(pointer, x, y);
-				} catch (Exception e) {
-					System.out.println("pointerDragged: " + e.getMessage());
-				}
-				break;
-
-			case POINTER_RELEASED:
-				try {
-					canvas.pointerReleased(pointer, x, y);
-				} catch (Exception e) {
-					System.out.println("pointerReleased: " + e.getMessage());
-				}
-				break;
-
-			case SHOW_NOTIFY:
-				try {
-					canvas.doShowNotify();
-				} catch (Exception e) {
-					System.out.println("showNotify: " + e.getMessage());
-				}
-				break;
-
-			case HIDE_NOTIFY:
-				try {
-					canvas.doHideNotify();
-				} catch (Exception e) {
-					System.out.println("hideNotify: " + e.getMessage());
-				}
-				break;
-
-			case SIZE_CHANGED:
-				try {
-					canvas.doSizeChanged(width, height);
-				} catch (Exception e) {
-					System.out.println("sizeChanged: " + e.getMessage());
-				}
-				break;
+		try {
+			switch (eventType) {
+				case KEY_PRESSED:      canvas.doKeyPressed(keyCode); break;
+				case KEY_REPEATED:     canvas.doKeyRepeated(keyCode); break;
+				case KEY_RELEASED:     canvas.doKeyReleased(keyCode); break;
+				case POINTER_PRESSED:  canvas.doPointerPressed(x, y); break;
+				case POINTER_DRAGGED:  canvas.doPointerDragged(x, y); break;
+				case POINTER_RELEASED: canvas.doPointerReleased(x, y); break;
+			}
+		} catch (Throwable t) {
+			System.out.println("[Canvas] Error in input callback: " + t);
+			t.printStackTrace();
 		}
 	}
 
 	@Override
 	public void recycle() {
 		canvas = null;
-		recycled.push(this);
+		synchronized (recycled) {
+			recycled.push(this);
+		}
 	}
 
 	@Override

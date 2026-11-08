@@ -11,9 +11,37 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <signal.h>
+#include "../Engine/gfx_text.h"
+
+void net_natives_reg(MiniJVM *jvm);
 
 static MiniJVM *g_jvm = NULL;
 static atomic_int g_jvm_stop_requested = 0;
+
+// Per-game settings to apply at the next jvm_bridge_init
+#define MAX_EXTRA_PROPERTIES 32
+static struct { char key[64]; char value[256]; } g_extra_properties[MAX_EXTRA_PROPERTIES];
+static int g_extra_property_count = 0;
+static int g_heap_limit_mb = 192;
+static int g_font_small = 0, g_font_medium = 0, g_font_large = 0;
+
+void jvm_bridge_set_property(const char *key, const char *value) {
+    if (g_extra_property_count >= MAX_EXTRA_PROPERTIES) return;
+    snprintf(g_extra_properties[g_extra_property_count].key, 64, "%s", key);
+    snprintf(g_extra_properties[g_extra_property_count].value, 256, "%s", value);
+    g_extra_property_count++;
+}
+
+void jvm_bridge_set_heap_limit(int megabytes) {
+    if (megabytes >= 16 && megabytes <= 1024) g_heap_limit_mb = megabytes;
+}
+
+void jvm_bridge_set_font_sizes(int small, int medium, int large) {
+    g_font_small = small;
+    g_font_medium = medium;
+    g_font_large = large;
+}
 
 /* 3D supersampling scale — shared by M3G (reads directly) and MC3D (via system property) */
 int g_render_3d_scale = 1;
@@ -31,13 +59,13 @@ int jvm_bridge_init(const char *res_root, const char *save_root, const char *mid
     // before this function runs on the background thread.
 
     // Build bootclasspath: minijvm_rt.jar
+    // The J2ME API comes first so it can replace classes of the runtime (javax.microedition.io).
     char bootclasspath[1024];
-    snprintf(bootclasspath, sizeof(bootclasspath), "%s/minijvm_rt.jar", res_root);
+    snprintf(bootclasspath, sizeof(bootclasspath), "%s/j2me_api.jar" PATHSEPARATOR "%s/minijvm_rt.jar", res_root, res_root);
 
-    // Build classpath: j2me_api.jar + midlet JAR
+    // Classpath: the MIDlet JAR
     char classpath[4096];
-    snprintf(classpath, sizeof(classpath), "%s/j2me_api.jar:%s",
-             res_root, midlet_jar);
+    snprintf(classpath, sizeof(classpath), "%s", midlet_jar);
 
     printf("[JVM Bridge] bootclasspath: %s\n", bootclasspath);
     printf("[JVM Bridge] classpath: %s\n", classpath);
@@ -54,7 +82,7 @@ int jvm_bridge_init(const char *res_root, const char *save_root, const char *mid
     // The collector stops every game thread while it marks. Running it twice a
     // second made games stutter; now it runs every 4 s, or sooner when the
     // heap (Java objects + native images) passes 75% of 192 MB.
-    g_jvm->max_heap_size = 192 * 1024 * 1024;       // java + native via g_native_extra_heap
+    g_jvm->max_heap_size = (s64)g_heap_limit_mb * 1024 * 1024;       // java + native via g_native_extra_heap
     g_jvm->garbage_collect_period_ms = 4000;
     g_jvm->heap_overload_percent = 75;
 
@@ -73,6 +101,12 @@ int jvm_bridge_init(const char *res_root, const char *save_root, const char *mid
     j2me_audio_reg_natives(g_jvm);
     j2me_micro3d_gl_reg_natives(g_jvm);
     j2me_m3g_reg_natives(g_jvm);
+    net_natives_reg(g_jvm);
+
+    // Writing to a socket the server has closed must fail with an error, not kill the app
+#ifdef SIGPIPE
+    signal(SIGPIPE, SIG_IGN);
+#endif
 
     // Set system properties
     sys_properties_set_c(g_jvm, "os.name", "iOS");
@@ -102,6 +136,12 @@ int jvm_bridge_init(const char *res_root, const char *save_root, const char *mid
         snprintf(fl, sizeof(fl), "%d", fps_limit);
         sys_properties_set_c(g_jvm, "j2me.fps.limit", fl);
     }
+    for (int i = 0; i < g_extra_property_count; i++) {
+        sys_properties_set_c(g_jvm, g_extra_properties[i].key, g_extra_properties[i].value);
+    }
+    g_extra_property_count = 0;
+    gfx_text_set_sizes(g_font_small, g_font_medium, g_font_large);
+
     printf("[JVM Bridge] Screen size: %dx%d, 3D render scale: %s, FPS limit: %d\n",
            screen_width, screen_height, ss, fps_limit);
 
@@ -167,6 +207,7 @@ void jvm_bridge_destroy(void) {
 void jvm_bridge_request_stop(void) {
     printf("[JVM Bridge] Stop requested\n");
     atomic_store(&g_jvm_stop_requested, 1);
+    j2me_input_wake();
 }
 
 int jvm_bridge_is_stop_requested(void) {

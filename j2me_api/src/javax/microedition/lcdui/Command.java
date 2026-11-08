@@ -10,17 +10,26 @@ public class Command {
     public static final int EXIT = 7;
     public static final int ITEM = 8;
 
-    private String label;
-    private int commandType;
-    private int priority;
+    private final String label;
+    private final String longLabel;
+    private final int commandType;
+    private final int priority;
 
     public Command(String label, int commandType, int priority) {
-        this.label = label;
+        this(label, null, commandType, priority);
+    }
+
+    public Command(String shortLabel, String longLabel, int commandType, int priority) {
+        if (shortLabel == null) throw new NullPointerException();
+        if (commandType < SCREEN || commandType > ITEM) throw new IllegalArgumentException();
+        this.label = shortLabel;
+        this.longLabel = longLabel;
         this.commandType = commandType;
         this.priority = priority;
     }
 
     public String getLabel() { return label; }
+    public String getLongLabel() { return longLabel; }
     public int getCommandType() { return commandType; }
     public int getPriority() { return priority; }
 }

@@ -4,10 +4,14 @@ public class Alert extends Screen {
     public static final int FOREVER = -2;
     public static final Command DISMISS_COMMAND = new Command("OK", Command.OK, 0);
 
+    private static final int DEFAULT_TIMEOUT = 2000;
+
     private String text;
     private Image image;
     private AlertType type;
-    private int timeout = FOREVER;
+    private int timeout = DEFAULT_TIMEOUT;
+    private Gauge indicator;
+    private boolean explicitListener;
     Displayable nextDisplayable;
 
     public Alert(String title) { this(title, null, null, null); }
@@ -20,30 +24,59 @@ public class Alert extends Screen {
     }
 
     public String getString() { return text; }
-    public void setString(String str) { this.text = str; }
+    public void setString(String str) { text = str; contentChanged(); }
     public Image getImage() { return image; }
-    public void setImage(Image img) { this.image = img; }
+    public void setImage(Image img) { image = img; contentChanged(); }
     public AlertType getType() { return type; }
     public void setType(AlertType type) { this.type = type; }
     public int getTimeout() { return timeout; }
-    public void setTimeout(int time) { this.timeout = time; }
-    public int getDefaultTimeout() { return FOREVER; }
-    public Indicator getIndicator() { return null; }
-    public void setIndicator(Indicator indicator) { }
 
-    public void showNative() {
-        NativeBridge.formBegin(getTitle(), 2); // type 2 = alert
-        NativeBridge.setAlertText(text != null ? text : "", timeout);
-        java.util.ArrayList<Command> cmds = getCommands();
-        if (cmds.isEmpty()) {
-            NativeBridge.formAddCommand(DISMISS_COMMAND.getLabel(),
-                    DISMISS_COMMAND.getCommandType(), DISMISS_COMMAND.getPriority(), 0);
-        } else {
-            for (int i = 0; i < cmds.size(); i++) {
-                Command c = cmds.get(i);
-                NativeBridge.formAddCommand(c.getLabel(), c.getCommandType(), c.getPriority(), i);
-            }
+    public void setTimeout(int time) {
+        if (time <= 0 && time != FOREVER) throw new IllegalArgumentException();
+        timeout = time;
+    }
+
+    public int getDefaultTimeout() { return DEFAULT_TIMEOUT; }
+    public Gauge getIndicator() { return indicator; }
+    public void setIndicator(Gauge indicator) { this.indicator = indicator; contentChanged(); }
+
+    public void setCommandListener(CommandListener listener) {
+        explicitListener = listener != null;
+        super.setCommandListener(listener);
+    }
+
+    @Override
+    void writeContent(ScreenWriter out) {
+        out.field("kind", "alert");
+        out.field("text", text == null ? "" : text);
+        out.image("image", image);
+        // An alert with several commands stays until the user chooses one
+        out.field("timeout", getCommands().size() > 1 ? FOREVER : timeout);
+        out.field("alertType", type == AlertType.ERROR ? "error" : type == AlertType.WARNING ? "warning"
+                : type == AlertType.ALARM ? "alarm" : type == AlertType.CONFIRMATION ? "confirmation" : "info");
+        if (indicator != null) {
+            out.beginObjectField("indicator");
+            out.field("max", indicator.getMaxValue());
+            out.field("value", indicator.getValue());
+            out.endObject();
         }
-        NativeBridge.formShow();
+    }
+
+    @Override
+    public void fireCommandAction(int commandIndex) {
+        if (explicitListener && !getCommands().isEmpty()) {
+            super.fireCommandAction(commandIndex);
+        } else {
+            dismiss();
+        }
+    }
+
+    /** Timeout elapsed, or the implicit OK was pressed. */
+    void dismiss() {
+        if (explicitListener && getCommandListener() != null) {
+            getCommandListener().commandAction(DISMISS_COMMAND, this);
+        } else {
+            Display.dismissAlert(this);
+        }
     }
 }

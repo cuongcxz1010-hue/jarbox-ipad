@@ -1,3 +1,5 @@
+#include "../Engine/gfx_core.h"
+#include "j2me_render.h"
 //
 // j2me_micro3d_gl.m — OpenGL ES 2.0 bridge for MascotCapsule micro3D on iOS
 //
@@ -666,17 +668,12 @@ static s32 n_mc3dBlitToGraphics(Runtime *runtime, JClass *clazz) {
 
     if (!ctxHandle || !pixAddr) return RUNTIME_STATUS_NORMAL;
 
-    // The ctxHandle points to our RenderContext struct (from j2me_render.m)
-    // RenderContext.ctx is a CGContextRef to a CGBitmapContext
-    CGContextRef *ctxPtr = (CGContextRef *)(intptr_t)ctxHandle;
-    CGContextRef ctx = *ctxPtr;
-    if (!ctx) return RUNTIME_STATUS_NORMAL;
-
     uint8_t *glPixels = (uint8_t *)(intptr_t)pixAddr;
-    uint8_t *canvasPixels = (uint8_t *)CGBitmapContextGetData(ctx);
-    size_t canvasW = CGBitmapContextGetWidth(ctx);
-    size_t canvasH = CGBitmapContextGetHeight(ctx);
-    size_t canvasBPR = CGBitmapContextGetBytesPerRow(ctx);
+    uint8_t *canvasPixels = NULL;
+    int canvasWi = 0, canvasHi = 0;
+    if (!j2me_render_get_pixels(ctxHandle, &canvasPixels, &canvasWi, &canvasHi)) return RUNTIME_STATUS_NORMAL;
+    size_t canvasW = (size_t)canvasWi, canvasH = (size_t)canvasHi;
+    size_t canvasBPR = canvasW * 4;
 
     if (!canvasPixels || !glPixels) return RUNTIME_STATUS_NORMAL;
 
@@ -700,30 +697,8 @@ static s32 n_mc3dBlitToGraphics(Runtime *runtime, JClass *clazz) {
             }
         }
     } else {
-        // High-quality downscale via Core Graphics (Lanczos-like interpolation).
-        // Create CGImage from GL RGBA pixels, draw scaled into canvas CGContext.
-        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-        CGContextRef tmpCtx = CGBitmapContextCreate(
-            glPixels, w, h, 8, w * 4, cs,
-            kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault);
-        // GL pixels are RGBA — kCGImageAlphaNoneSkipLast treats byte 3 as skip (close enough)
-        // and byte order default = RGBA on ARM = correct channel mapping
-        if (tmpCtx) {
-            CGImageRef img = CGBitmapContextCreateImage(tmpCtx);
-            if (img) {
-                // Canvas has Y-flip transform (translate+scale from creation).
-                // Undo it so CGContextDrawImage doesn't flip the already-correct pixels.
-                CGContextSaveGState(ctx);
-                CGContextTranslateCTM(ctx, 0, canvasH);
-                CGContextScaleCTM(ctx, 1.0, -1.0);
-                CGContextSetInterpolationQuality(ctx, kCGInterpolationHigh);
-                CGContextDrawImage(ctx, CGRectMake(0, 0, canvasW, canvasH), img);
-                CGContextRestoreGState(ctx);
-                CGImageRelease(img);
-            }
-            CGContextRelease(tmpCtx);
-        }
-        CGColorSpaceRelease(cs);
+        // Supersampled 3D: box-filter down to the canvas size
+        gfx_downscale_rgba(glPixels, w, h, (uint32_t *)canvasPixels, (int)canvasW, (int)canvasH, (int)canvasW, 0);
     }
 
     return RUNTIME_STATUS_NORMAL;
@@ -743,14 +718,11 @@ static s32 n_mc3dReadCanvasPixels(Runtime *runtime, JClass *clazz) {
 
     if (!ctxHandle || !dstAddr) return RUNTIME_STATUS_NORMAL;
 
-    CGContextRef *ctxPtr = (CGContextRef *)(intptr_t)ctxHandle;
-    CGContextRef ctx = *ctxPtr;
-    if (!ctx) return RUNTIME_STATUS_NORMAL;
-
-    uint8_t *canvasPixels = (uint8_t *)CGBitmapContextGetData(ctx);
-    size_t canvasW = CGBitmapContextGetWidth(ctx);
-    size_t canvasH = CGBitmapContextGetHeight(ctx);
-    size_t canvasBPR = CGBitmapContextGetBytesPerRow(ctx);
+    uint8_t *canvasPixels = NULL;
+    int canvasWi = 0, canvasHi = 0;
+    if (!j2me_render_get_pixels(ctxHandle, &canvasPixels, &canvasWi, &canvasHi)) return RUNTIME_STATUS_NORMAL;
+    size_t canvasW = (size_t)canvasWi, canvasH = (size_t)canvasHi;
+    size_t canvasBPR = canvasW * 4;
 
     if (!canvasPixels) return RUNTIME_STATUS_NORMAL;
 
