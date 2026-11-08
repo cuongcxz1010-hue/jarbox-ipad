@@ -8,7 +8,7 @@
 //    inscribed in the bounding box, 0° at 3 o'clock, counter-clockwise.
 //
 
-#include "gfx_core.h"
+#include "Graphics/gfx_core.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>

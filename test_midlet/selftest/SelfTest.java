@@ -117,6 +117,8 @@ public class SelfTest extends MIDlet {
         section("events", new Runnable() { public void run() { testEvents(); } });
         section("screens", new Runnable() { public void run() { testScreens(); } });
         section("properties", new Runnable() { public void run() { testProperties(); } });
+        section("digest", new Runnable() { public void run() { testDigest(); } });
+        section("https", new Runnable() { public void run() { probeHttps(); } });
 
         System.out.println("[SELFTEST] passed=" + passed + " failed=" + failed);
         new Report().show();
@@ -970,6 +972,44 @@ public class SelfTest extends MIDlet {
 
     private void sleep(int ms) {
         try { Thread.sleep(ms); } catch (InterruptedException e) { }
+    }
+
+    private String hex(byte[] b, int n) {
+        StringBuffer out = new StringBuffer();
+        for (int i = 0; i < n; i++) {
+            int v = b[i] & 0xFF;
+            if (v < 16) out.append('0');
+            out.append(Integer.toHexString(v));
+        }
+        return out.toString();
+    }
+
+    private void testDigest() {
+        try {
+            byte[] data = "abc".getBytes("UTF-8");
+            byte[] out = new byte[20];
+            java.security.MessageDigest md5 = java.security.MessageDigest.getInstance("MD5");
+            md5.update(data, 0, data.length);
+            int n = md5.digest(out, 0, 16);
+            check("md5", n == 16 && hex(out, 16).equals("900150983cd24fb0d6963f7d28e17f72"));
+            java.security.MessageDigest sha = java.security.MessageDigest.getInstance("SHA-1");
+            sha.update(data, 0, data.length);
+            n = sha.digest(out, 0, 20);
+            check("sha1", n == 20 && hex(out, 20).equals("a9993e364706816aba3e25717850c26c9cd0d89d"));
+        } catch (Exception e) {
+            check("digest " + e, false);
+        }
+    }
+
+    /** Reaches the Internet, so it only reports; it never fails the run. */
+    private void probeHttps() {
+        try {
+            HttpConnection http = (HttpConnection) Connector.open("https://example.com/");
+            System.out.println("[TEST] INFO https status " + http.getResponseCode());
+            http.close();
+        } catch (Throwable t) {
+            System.out.println("[TEST] INFO https unavailable: " + t);
+        }
     }
 
     private void testProperties() {

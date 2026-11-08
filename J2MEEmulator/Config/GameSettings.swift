@@ -171,11 +171,28 @@ struct GameSettings {
         nonmutating set { store(newValue, "sound_") }
     }
 
+    /// Seconds a connection attempt may take before it fails.
+    var connectTimeoutSeconds: Int {
+        get { int("connectSec_", 30) }
+        nonmutating set { store(newValue, "connectSec_") }
+    }
+
+    /// Total time this game has been played, in seconds.
+    var playTimeSeconds: Double {
+        get { double("playTime_", 0) }
+    }
+
+    func addPlayTime(_ seconds: TimeInterval) {
+        guard seconds > 0 else { return }
+        store(playTimeSeconds + seconds, "playTime_")
+    }
+
     /// Pass the per-game engine settings to the Java VM. Call before jvm_bridge_init.
     func applyToJVM() {
         jvm_bridge_set_property("j2me.keyboard.layout", String(keyLayout.rawValue))
         jvm_bridge_set_property("j2me.call.pauseapp", callPauseApp ? "1" : "0")
         jvm_bridge_set_property("j2me.sound.enabled", soundEnabled ? "1" : "0")
+        jvm_bridge_set_property("j2me.net.connect.timeout", String(connectTimeoutSeconds * 1000))
         let res = resolution
         let sizes = resolvedFontSizes(height: min(res.w, res.h))
         jvm_bridge_set_font_sizes(Int32(sizes.small), Int32(sizes.medium), Int32(sizes.large))

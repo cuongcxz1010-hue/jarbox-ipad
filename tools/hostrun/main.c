@@ -17,8 +17,8 @@
 #include <windows.h>
 #include "jvm.h"
 #include "jvm_util.h"
-#include "jvm_bridge.h"
-#include "j2me_input.h"
+#include "Core/jvm_bridge.h"
+#include "Input/j2me_input.h"
 
 extern long g_frames_presented;
 int host_save_frame(const char *path);
@@ -91,6 +91,10 @@ static DWORD WINAPI driver(LPVOID unused) {
             char path[700];
             snprintf(path, sizeof path, "%s/final.png", g_out_dir);
             host_save_frame(path);
+            FILETIME c0, e0, k0, u0;
+            GetProcessTimes(GetCurrentProcess(), &c0, &e0, &k0, &u0);
+            ULONGLONG cpu = (((ULONGLONG)k0.dwHighDateTime << 32 | k0.dwLowDateTime) + ((ULONGLONG)u0.dwHighDateTime << 32 | u0.dwLowDateTime)) / 10000;
+            printf("[host] cpu time %llu ms over %d s, %ld frames\n", cpu, elapsed / 1000, g_frames_presented);
             printf("[host] time is up, stopping\n");
             fflush(stdout);
             jvm_bridge_request_stop();

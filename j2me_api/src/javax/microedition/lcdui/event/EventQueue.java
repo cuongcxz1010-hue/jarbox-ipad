@@ -150,7 +150,6 @@ public class EventQueue implements Runnable {
 
 	/**
 	 * Stop the event loop.
-	 * This method is blocked until the loop is completely stopped.
 	 */
 	public void stopProcessing() {
 		enabled = false;
@@ -159,9 +158,9 @@ public class EventQueue implements Runnable {
 			waiter.notifyAll();
 		}
 
-		synchronized (interlock) {
-			thread = null;
-		}
+		// A callback stuck in game code must not keep the session from ending,
+		// so the loop is not waited for here; the JVM shutdown stops the thread.
+		thread = null;
 	}
 
 	/**

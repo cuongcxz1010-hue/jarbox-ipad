@@ -1,13 +1,14 @@
 /*
  * Copyright 2017-2018 Nikita Shakarun
  * Licensed under the Apache License, Version 2.0
- * Ported for iOS/miniJVM — matches J2ME-Loader's GameCanvas structure.
+ * Ported for iOS/miniJVM — matches J2ME-Loader's GameCanvas.
  */
 package javax.microedition.lcdui.game;
 
 import javax.microedition.lcdui.Canvas;
 import javax.microedition.lcdui.Graphics;
 import javax.microedition.lcdui.Image;
+import javax.microedition.lcdui.keyboard.KeyMapper;
 
 public class GameCanvas extends Canvas {
 
@@ -21,9 +22,13 @@ public class GameCanvas extends Canvas {
 	public static final int GAME_C_PRESSED = 1 << Canvas.GAME_C;
 	public static final int GAME_D_PRESSED = 1 << Canvas.GAME_D;
 
-	private Image image;
-	private int keyState;
+	private final Image image;
 	private final boolean suppressCommands;
+
+	/** Keys pressed since the last getKeyStates(): a short press is never lost. */
+	private int latchedKeys;
+	/** Keys down right now. */
+	private int heldKeys;
 
 	public GameCanvas(boolean suppressCommands) {
 		super();
@@ -36,8 +41,8 @@ public class GameCanvas extends Canvas {
 		g.drawImage(image, 0, 0, Graphics.LEFT | Graphics.TOP);
 	}
 
-	private int convertGameKeyCode(int keyCode) {
-		switch (javax.microedition.lcdui.keyboard.KeyMapper.getGameAction(keyCode)) {
+	private int gameKeyBit(int keyCode) {
+		switch (KeyMapper.getGameAction(keyCode)) {
 			case LEFT: return LEFT_PRESSED;
 			case UP: return UP_PRESSED;
 			case RIGHT: return RIGHT_PRESSED;
@@ -51,40 +56,38 @@ public class GameCanvas extends Canvas {
 		}
 	}
 
-	@Override
-	public void doKeyPressed(int keyCode) {
-		int code = convertGameKeyCode(keyCode);
-		if (code != 0) {
-			keyState |= code;
-			if (suppressCommands) {
-				return;
-			}
-		}
-		super.doKeyPressed(keyCode);
+	private boolean latch(int keyCode) {
+		int bit = gameKeyBit(keyCode);
+		if (bit == 0) return false;
+		latchedKeys |= bit;
+		heldKeys |= bit;
+		return suppressCommands;
 	}
 
 	@Override
-	public void doKeyReleased(int keyCode) {
-		int code = convertGameKeyCode(keyCode);
-		if (code != 0) {
-			keyState &= ~code;
-			if (suppressCommands) {
-				return;
-			}
-		}
-		super.doKeyReleased(keyCode);
+	public void doKeyPressed(int keyCode) {
+		if (!latch(keyCode)) super.doKeyPressed(keyCode);
 	}
 
 	@Override
 	public void doKeyRepeated(int keyCode) {
-		if (suppressCommands && convertGameKeyCode(keyCode) != 0) {
-			return;
+		if (!latch(keyCode)) super.doKeyRepeated(keyCode);
+	}
+
+	@Override
+	public void doKeyReleased(int keyCode) {
+		int bit = gameKeyBit(keyCode);
+		if (bit != 0) {
+			heldKeys &= ~bit;
+			if (suppressCommands) return;
 		}
-		super.doKeyRepeated(keyCode);
+		super.doKeyReleased(keyCode);
 	}
 
 	public int getKeyStates() {
-		return keyState;
+		int states = isShown() ? latchedKeys | heldKeys : 0;
+		latchedKeys = 0;
+		return states;
 	}
 
 	public Graphics getGraphics() {
@@ -101,7 +104,8 @@ public class GameCanvas extends Canvas {
 
 	@Override
 	public void doShowNotify() {
-		keyState = 0;
+		latchedKeys = 0;
+		heldKeys = 0;
 		super.doShowNotify();
 	}
 }

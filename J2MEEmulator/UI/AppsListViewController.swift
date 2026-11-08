@@ -37,6 +37,8 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
             rename: { [weak self] game in self?.rename(game) },
             clearData: { [weak self] game in self?.confirmClearGameData(for: game) },
             delete: { [weak self] game in self?.confirmDelete(game) },
+            backup: { [weak self] game in self?.backup(game) },
+            restoreSnapshot: { [weak self] game in self?.restoreSnapshot(game) },
             add: { [weak self] in self?.addAppTapped() },
             logs: { [weak self] in
                 guard let self else { return }
@@ -171,9 +173,21 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
         loadViewIfNeeded()
         let dir = Self.gamesDirectory
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Self.importJARs(from: urls, into: dir)
+            let backups = urls.filter { $0.lastPathComponent.lowercased().hasSuffix(".jarbox.zip") }
+            let others = urls.filter { !$0.lastPathComponent.lowercased().hasSuffix(".jarbox.zip") }
+            var result = Self.importJARs(from: others, into: dir)
+            for url in backups {
+                let accessing = url.startAccessingSecurityScopedResource()
+                if let name = GameStorage.importBackup(from: url, gamesDirectory: dir) {
+                    result.imported.append(name + " (khôi phục từ bản sao lưu)")
+                } else {
+                    result.rejected.append(url.lastPathComponent + ": không phải bản sao lưu của JarBox")
+                }
+                if accessing { url.stopAccessingSecurityScopedResource() }
+            }
+            let finished = result
             DispatchQueue.main.async { [weak self] in
-                self?.handleImported(result)
+                self?.handleImported(finished)
             }
         }
     }
@@ -283,6 +297,7 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
 
     private func handleImported(_ result: ImportResult) {
         scanApps()
+        if AutoTest.showSettings { return }
         var message = ""
         if !result.imported.isEmpty {
             message += "Đã thêm \(result.imported.count) game:\n" + result.imported.joined(separator: "\n")
@@ -350,16 +365,21 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
         // Read on the main thread, used on the scan thread
         var customNames: [String: String] = [:]
         var lastPlayed: [String: Double] = [:]
+        var resolutions: [String: String] = [:]
+        var playTimes: [String: Double] = [:]
         if let files = try? FileManager.default.contentsOfDirectory(atPath: gamesDir) {
             for file in files where file.lowercased().hasSuffix(".jar") {
                 let path = gamesDir + "/" + file
                 if let n = defaults.string(forKey: Self.customNameKey(path)), !n.isEmpty { customNames[path] = n }
                 let t = defaults.double(forKey: Self.lastPlayedKey(path))
                 if t > 0 { lastPlayed[path] = t }
+                let settings = GameSettings(jarPath: path)
+                resolutions[path] = "\(settings.resolution.w)×\(settings.resolution.h)"
+                playTimes[path] = settings.playTimeSeconds
             }
         }
 
-        let names = customNames, played = lastPlayed
+        let names = customNames, played = lastPlayed, sizes = resolutions, times = playTimes
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
 
@@ -386,7 +406,10 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
                     vendor: meta?.vendor, version: meta?.version, sizeBytes: size,
                     icon: Self.gameIcon(meta?.readIcon(from: path), name: name, index: index),
                     lastPlayed: played[path].map { Date(timeIntervalSince1970: $0) },
-                    hasJad: fm.fileExists(atPath: jad)))
+                    hasJad: fm.fileExists(atPath: jad),
+                    resolution: sizes[path] ?? "240×320",
+                    playTime: times[path] ?? 0,
+                    problem: Self.problem(with: meta, jarPath: path)))
             }
 
             DispatchQueue.main.async { [weak self] in
@@ -394,6 +417,10 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
                 if self.model.games != entries { self.model.games = entries }
                 self.model.scanned = true
                 self.offerResumeIfReady()
+                if AutoTest.showSettings, !self.autoStarted, let game = entries.first {
+                    self.autoStarted = true
+                    self.openSettings(for: game)
+                }
                 if let name = AutoTest.autorunJarName, !self.autoStarted,
                    let game = entries.first(where: { $0.fileName == name }) {
                     self.autoStarted = true
@@ -407,6 +434,14 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
     // ============================================================
     // MARK: - Icons
     // ============================================================
+
+    /// Why a JAR cannot start, checked from its manifest and contents.
+    private static func problem(with meta: JARMetadata?, jarPath: String) -> String? {
+        guard let meta else { return "Thiếu MANIFEST.MF hoặc file hỏng" }
+        guard let className = meta.className, !className.isEmpty else { return "Không có MIDlet-Class trong manifest" }
+        let entry = className.replacingOccurrences(of: ".", with: "/") + ".class"
+        return ZIPReader.extractEntry(zipPath: jarPath, entryName: entry) == nil ? "Không tìm thấy lớp \(className)" : nil
+    }
 
     private static let iconSide: CGFloat = 60
 
@@ -524,6 +559,47 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
         controller.modalPresentationStyle = .formSheet
         host = controller
         present(controller, animated: true)
+    }
+
+    private func backup(_ game: GameEntry) {
+        let storage = GameStorage(settings: GameSettings(jarPath: game.path))
+        DispatchQueue.global(qos: .userInitiated).async {
+            let url = storage.exportBackup(jarPath: game.path)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard let url else {
+                    self.showMessage("Không tạo được bản sao lưu.")
+                    return
+                }
+                let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+                if let pop = share.popoverPresentationController {
+                    pop.sourceView = self.view
+                    pop.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
+                    pop.permittedArrowDirections = []
+                }
+                self.present(share, animated: true)
+            }
+        }
+    }
+
+    private func restoreSnapshot(_ game: GameEntry) {
+        let storage = GameStorage(settings: GameSettings(jarPath: game.path))
+        guard storage.hasSnapshot else {
+            showMessage("Chưa có bản lưu. Trong game, mở Menu ≡ → Lưu dữ liệu game để tạo.")
+            return
+        }
+        let alert = UIAlertController(title: "Khôi phục dữ liệu", message: "Thay dữ liệu hiện tại của \"\(game.name)\" bằng bản đã lưu?", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Hủy", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Khôi phục", style: .destructive) { [weak self] _ in
+            self?.showMessage(storage.restoreSnapshot() ? "Đã khôi phục dữ liệu game." : "Không khôi phục được.")
+        })
+        present(alert, animated: true)
+    }
+
+    private func showMessage(_ text: String) {
+        let alert = UIAlertController(title: nil, message: text, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        topPresenter().present(alert, animated: true)
     }
 
     private func launch(_ game: GameEntry) {

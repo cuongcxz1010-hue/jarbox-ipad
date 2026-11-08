@@ -7,7 +7,7 @@
 #ifndef GFX_PLATFORM_H
 #define GFX_PLATFORM_H
 
-#include "gfx_core.h"
+#include "Graphics/gfx_core.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -12,10 +12,10 @@
 //  frame so a late acquire sees refcount 0 instead of reused memory.
 //
 
-#include "../NativeBridge/j2me_render.h"
-#include "gfx_core.h"
-#include "gfx_text.h"
-#include "gfx_platform.h"
+#include "Graphics/j2me_render.h"
+#include "Graphics/gfx_core.h"
+#include "Graphics/gfx_text.h"
+#include "Graphics/gfx_platform.h"
 #include "jvm.h"
 #include "jvm_util.h"
 #include <stdatomic.h>

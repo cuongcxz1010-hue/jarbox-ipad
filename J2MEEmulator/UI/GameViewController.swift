@@ -39,7 +39,8 @@ class GameViewController: UIViewController {
     private let keyInputView = KeyInputView()
     private var editor: KeyLayoutEditorView?
     private var lastDefaultFrames: [String: CGRect] = [:]
-    private var appliedLook: (KeyTheme, KeyShape)?
+    private var appliedLook: String?
+    private let networkBadge = UILabel()
 
     private var showingNativeScreen = false          // a Form, List or TextBox is shown instead of the canvas
     private var keyboardOverlap: CGFloat = 0         // how much of the safe area the iOS keyboard covers
@@ -145,6 +146,18 @@ class GameViewController: UIViewController {
             view.addSubview(v)
         }
         screenView.isHidden = true
+
+        networkBadge.text = "  Mất mạng  "
+        networkBadge.font = .boldSystemFont(ofSize: 13)
+        networkBadge.textColor = .white
+        networkBadge.backgroundColor = UIColor.systemRed.withAlphaComponent(0.85)
+        networkBadge.layer.cornerRadius = 8
+        networkBadge.layer.masksToBounds = true
+        networkBadge.isHidden = SessionKeeper.shared.networkAvailable
+        view.addSubview(networkBadge)
+        SessionKeeper.shared.onNetworkChange = { [weak self] up in
+            self?.networkBadge.isHidden = up
+        }
 
         setupMenuButton()
         setupAutoPressBadge()
@@ -253,14 +266,23 @@ class GameViewController: UIViewController {
         let profile = profiles.active
         let preset = profile.preset
 
-        if appliedLook == nil || appliedLook! != (profile.keyTheme, profile.keyShape) {
-            keyboard.apply(theme: profile.keyTheme, shape: profile.keyShape)
-            appliedLook = (profile.keyTheme, profile.keyShape)
+        let look = "\(profile.keyTheme.rawValue)|\(profile.keyShape.rawValue)|\(profile.fillColorHex ?? "")|\(profile.textColorHex ?? "")|\(profile.landscape.values.compactMap(\.color).count)|\(profile.portrait.values.compactMap(\.color).count)"
+        if appliedLook != look {
+            var perKey: [String: UIColor] = [:]
+            for (id, placement) in portrait ? profile.portrait : profile.landscape {
+                if let color = UIColor(hex: placement.color) { perKey[id] = color }
+            }
+            keyboard.apply(theme: profile.keyTheme, shape: profile.keyShape,
+                           fill: UIColor(hex: profile.fillColorHex), text: UIColor(hex: profile.textColorHex), perKey: perKey)
+            appliedLook = look
         }
+        keyboard.setRepeat(delayMs: profile.repeatDelayMs, intervalMs: profile.repeatIntervalMs)
+        keyboard.joystickDeadZone = CGFloat(profile.deadZone)
 
         // Game picture: above the key panel in portrait, full height in landscape
         var metrics = ControlCatalog.metrics(safe: safe, portrait: portrait,
-                                             userScale: CGFloat(profile.scale), isPad: isPad)
+                                             userScale: CGFloat(profile.scale), isPad: isPad,
+                                             spacing: CGFloat(profile.keySpacing))
         var area = safe
         if portrait && keysShown {
             let panel = ControlCatalog.portraitPanelHeight(metrics, preset: preset)
@@ -286,12 +308,25 @@ class GameViewController: UIViewController {
             guard let base = defaults[spec.id] else { continue }
             let placement = profiles.placement(spec.id, portrait: portrait)
             var keyFrame = frame(for: base, placement: placement, safe: safe)
-            let hiddenByUser = placement?.hidden ?? !ControlCatalog.visibleByDefault(spec.id, preset: preset)
+            let usesJoystick = profile.useJoystick
+            let isDirection = spec.group == .arrows && spec.id != "fire"
+            var hiddenByUser = placement?.hidden ?? !ControlCatalog.visibleByDefault(spec.id, preset: preset)
+            var replaced = false
+            if spec.group == .joystick {
+                replaced = !usesJoystick
+                hiddenByUser = placement?.hidden ?? false
+            } else if usesJoystick && isDirection {
+                replaced = true
+            }
+            if usesJoystick && spec.id == "fire" && placement == nil,
+               let pad = defaults["joystick"] {
+                keyFrame = CGRect(x: pad.maxX - base.width, y: pad.maxY - base.height, width: base.width, height: base.height)
+            }
             let keyOpacity = CGFloat(placement?.opacity ?? 1)
             // Translucent only where the key covers the game (like J2ME Loader)
             let covers = keyFrame.intersects(screen)
             var alpha = covers ? CGFloat(profile.opacity) * keyOpacity : keyOpacity
-            var visible = keysShown && (!hiddenByUser || editing)
+            var visible = keysShown && !replaced && (!hiddenByUser || editing)
             if editing && hiddenByUser { alpha = 0.3 }
 
             if spec.id == "menu" {
@@ -309,6 +344,8 @@ class GameViewController: UIViewController {
         keyboard.isEditing = editing
 
         let badgeSize = autoPressBadge.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        networkBadge.sizeToFit()
+        networkBadge.center = CGPoint(x: safe.midX, y: safe.minY + 16)
         autoPressBadge.frame = CGRect(x: safe.minX + 10, y: safe.minY + 10,
                                       width: min(badgeSize.width, safe.width - metrics.menuSize.width - 40), height: 40)
 
@@ -361,13 +398,17 @@ class GameViewController: UIViewController {
         let screenshot = UIAction(title: "Chụp màn hình game", image: UIImage(systemName: "camera")) { [weak self] _ in
             self?.shareScreenshot()
         }
+        let savePoint = UIAction(title: "Lưu dữ liệu game", subtitle: "Tạo bản sao dữ liệu đã lưu (RMS)",
+                                 image: UIImage(systemName: "externaldrive.badge.checkmark")) { [weak self] _ in
+            self?.saveDataSnapshot()
+        }
         let openSettings = UIAction(title: "Cài đặt game…", image: UIImage(systemName: "gearshape")) { [weak self] _ in
             self?.openSettings()
         }
         let help = UIAction(title: "Hướng dẫn", image: UIImage(systemName: "questionmark.circle")) { [weak self] _ in
             self?.showHelp()
         }
-        items.append(UIMenu(options: .displayInline, children: [screenshot, openSettings, help]))
+        items.append(UIMenu(options: .displayInline, children: [screenshot, savePoint, openSettings, help]))
 
         // Commands the game attached to its screen (MIDP Canvas commands)
         if !canvasCommands.isEmpty {
@@ -923,6 +964,17 @@ class GameViewController: UIViewController {
 
     // MARK: - Screenshot & help
 
+    /// There is no way to freeze a Java VM to disk, but the game's saved data
+    /// can be copied so it can be restored later from the settings.
+    private func saveDataSnapshot() {
+        let ok = GameStorage(settings: settings).createSnapshot()
+        let alert = UIAlertController(title: ok ? "Đã lưu" : "Chưa lưu được",
+                                      message: ok ? "Đã sao chép dữ liệu game đã lưu. Khôi phục tại Thư viện → Sao lưu dữ liệu. Đây là dữ liệu game tự ghi, không phải trạng thái đang chơi." : "Game chưa có dữ liệu để lưu.",
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
     private func shareScreenshot() {
         guard let cg = emulatorView.currentImage else { return }
         let factor = max(1, Int(960 / CGFloat(max(cg.width, cg.height))))
@@ -1106,6 +1158,8 @@ class GameViewController: UIViewController {
     /// Close the game screen. Restart it when the resolution was changed; if the
     /// game stopped by itself before showing anything, tell the user why.
     private func finishGame(initResult: Int32) {
+        settings.addPlayTime(Date().timeIntervalSince(startedAt))
+        SessionKeeper.shared.onNetworkChange = nil
         stopAutoPress()
         exitIdleMode()
         SessionKeeper.shared.gameStopped()

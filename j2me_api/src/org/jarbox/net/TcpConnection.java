@@ -16,8 +16,16 @@ import javax.microedition.io.SocketConnection;
  * would cost a system call. Bytes are passed through unchanged.
  */
 public final class TcpConnection implements SocketConnection {
-    private static final int DEFAULT_CONNECT_TIMEOUT_MS = 30000;
+    private static final int CONNECT_TIMEOUT_MS = connectTimeout();
     private static final int BUFFER_SIZE = 8192;
+
+    private static int connectTimeout() {
+        try {
+            return Integer.parseInt(System.getProperty("j2me.net.connect.timeout"));
+        } catch (RuntimeException e) {
+            return 30000;
+        }
+    }
 
     private final long handle;
     private final String remoteHost;
@@ -28,7 +36,7 @@ public final class TcpConnection implements SocketConnection {
     private int delay = 1;
 
     public TcpConnection(String host, int port, int mode) throws IOException {
-        long h = NetNative.tcpConnect(host, port, DEFAULT_CONNECT_TIMEOUT_MS);
+        long h = NetNative.tcpConnect(host, port, CONNECT_TIMEOUT_MS);
         if (h == NetNative.TIMEOUT) throw new InterruptedIOException("connect timed out: " + host + ":" + port);
         if (h < 0) throw new IOException("connect failed: " + host + ":" + port);
         this.handle = h;

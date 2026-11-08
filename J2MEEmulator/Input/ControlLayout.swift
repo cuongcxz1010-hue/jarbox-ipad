@@ -17,7 +17,7 @@ import UIKit
 // MARK: - Keys
 
 enum VKeyGroup {
-    case arrows, numbers, soft, extra, menu
+    case arrows, numbers, soft, extra, menu, joystick
 }
 
 struct VKeySpec {
@@ -81,9 +81,10 @@ enum ControlCatalog {
             VKeySpec(id: "softL", name: "Phím mềm trái (L)", label: "L", codes: [J2MEKey.softLeft], group: .soft),
             VKeySpec(id: "softR", name: "Phím mềm phải (R)", label: "R", codes: [J2MEKey.softRight], group: .soft),
             VKeySpec(id: "menu", name: "Menu của JarBox", label: "≡", codes: [], group: .menu),
-            VKeySpec(id: "clear", name: "Phím C (xóa / quay lại)", label: "C", codes: [J2MEKey.clear], group: .extra),
+            VKeySpec(id: "clear", name: "Phím C / Back (xóa, quay lại)", label: "C", codes: [J2MEKey.clear], group: .extra),
             VKeySpec(id: "call", name: "Phím Gọi", label: "Gọi", codes: [J2MEKey.call], group: .extra),
             VKeySpec(id: "end", name: "Phím Tắt", label: "Tắt", codes: [J2MEKey.end], group: .extra),
+            VKeySpec(id: "joystick", name: "Cần điều khiển 8 hướng", label: "", codes: [], group: .joystick),
         ]
         let digits: [(String, Int32)] = [
             ("1", 49), ("2", 50), ("3", 51), ("4", 52), ("5", 53), ("6", 54),
@@ -107,7 +108,7 @@ enum ControlCatalog {
     static func visibleByDefault(_ id: String, preset: KeyboardPreset) -> Bool {
         guard let spec = spec(id) else { return false }
         switch spec.group {
-        case .extra: return false
+        case .extra, .joystick: return false
         case .soft, .menu: return true
         case .arrows: return preset != .numbersOnly
         case .numbers: return preset != .arrowsOnly
@@ -128,14 +129,14 @@ enum ControlCatalog {
 
     /// Key size: about 1/14 of the long screen side (J2ME Loader uses 1/12),
     /// limited so both pads fit side by side, times the user's size.
-    static func metrics(safe: CGRect, portrait: Bool, userScale: CGFloat, isPad: Bool) -> Metrics {
+    static func metrics(safe: CGRect, portrait: Bool, userScale: CGFloat, isPad: Bool, spacing: CGFloat = 1) -> Metrics {
         let long = max(safe.width, safe.height), short = min(safe.width, safe.height)
         let margin: CGFloat = isPad ? 14 : 8
         var key = long / 14
         let fitAcross = (short - 2 * margin - 24) / 6.5          // two 3-wide pads in the short side
         key = min(key, fitAcross)
         key = min(max(key, 44), 96) * userScale
-        return Metrics(key: round(key), gap: round(max(4, key * 0.11)), margin: margin)
+        return Metrics(key: round(key), gap: round(max(2, key * 0.11 * spacing)), margin: margin)
     }
 
     /// Smaller keys when they then fit in the empty bars beside a landscape game.
@@ -186,6 +187,9 @@ enum ControlCatalog {
             f[id] = CGRect(x: numX + CGFloat(i % 3) * (k + g), y: numY + CGFloat(i / 3) * (k + g), width: k, height: k)
         }
 
+        // The joystick takes the place of the arrow pad
+        f["joystick"] = CGRect(x: arrowX, y: arrowY, width: m.arrowPad.width, height: m.arrowPad.height)
+
         // Soft keys: L always on the left, R on the right
         // (portrait: one row on top of the panel; landscape: each above the pad on its side)
         let soft = m.softSize
@@ -225,6 +229,7 @@ struct KeyPlacement: Codable, Equatable {
     var scale: Double = 1    // size relative to the default
     var opacity: Double = 1  // multiplied with the profile opacity
     var hidden: Bool = false
+    var color: String?       // "#RRGGBB", replaces the key's fill colour
 }
 
 struct ControlProfile: Codable {
@@ -236,6 +241,26 @@ struct ControlProfile: Codable {
     var layout: String?                 // KeyboardPreset raw value
     var theme: String?                  // KeyTheme raw value
     var shape: String?                  // KeyShape raw value
+    var repeatDelayMs: Int?             // nil = J2ME Loader's timing
+    var repeatIntervalMs: Int?
+    var spacing: Double?                // gap multiplier
+    var joystick: Bool?                 // joystick instead of the arrow keys
+    var joystickDeadZone: Double?
+    var fillColorHex: String?
+    var textColorHex: String?
+
+    var keySpacing: Double {
+        get { spacing ?? 1 }
+        set { spacing = newValue }
+    }
+    var useJoystick: Bool {
+        get { joystick ?? false }
+        set { joystick = newValue }
+    }
+    var deadZone: Double {
+        get { joystickDeadZone ?? 0.25 }
+        set { joystickDeadZone = newValue }
+    }
 
     var preset: KeyboardPreset {
         get { layout.flatMap(KeyboardPreset.init(rawValue:)) ?? .arrowsLeft }
@@ -302,6 +327,22 @@ final class ControlProfileStore {
         profiles.remove(at: activeIndex)
         activeIndex = max(0, activeIndex - 1)
         save()
+    }
+
+    /// Every profile of this game as JSON, for sharing between games and devices.
+    func exportJSON() -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try? encoder.encode(profiles)
+    }
+
+    /// Replace the profiles with those from an exported file.
+    func importJSON(_ data: Data) -> Bool {
+        guard let imported = try? JSONDecoder().decode([ControlProfile].self, from: data), !imported.isEmpty else { return false }
+        profiles = imported
+        activeIndex = 0
+        save()
+        return true
     }
 
     func placement(_ id: String, portrait: Bool) -> KeyPlacement? {

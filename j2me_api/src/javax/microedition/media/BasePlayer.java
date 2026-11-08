@@ -82,9 +82,19 @@ public class BasePlayer implements Player, VolumeControl {
         prefetch();
         if (state == PREFETCHED) {
             loopsLeft = loopCount;
-            doStart();
-            state = STARTED;
-            postEvent(PlayerListener.STARTED, new Long(getMediaTime()));
+            if (Manager.soundEnabled()) {
+                doStart();
+                state = STARTED;
+                postEvent(PlayerListener.STARTED, new Long(getMediaTime()));
+            } else {
+                // Silent: the game still sees a normal player that finishes
+                state = STARTED;
+                postEvent(PlayerListener.STARTED, new Long(0));
+                if (loopCount != Integer.MAX_VALUE) {
+                    loopsLeft = 1;
+                    complete();
+                }
+            }
         }
     }
 

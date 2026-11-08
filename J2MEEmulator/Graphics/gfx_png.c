@@ -7,7 +7,7 @@
 //  which matters to games that compare pixel values read back with getRGB.
 //
 
-#include "gfx_core.h"
+#include "Graphics/gfx_core.h"
 #include "../minijvm/utils/miniz.h"
 #include <stdlib.h>
 #include <string.h>

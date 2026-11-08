@@ -13,8 +13,8 @@
 #include <stdlib.h>
 #include <zlib.h>
 #include <OpenGLES/ES1/gl.h>
-#include "../j2me_render.h"
-#include "../../Engine/gfx_core.h"
+#include "Graphics/j2me_render.h"
+#include "Graphics/gfx_core.h"
 
 /* JNI type definitions (normally from jni.h, which we don't use) */
 typedef s64 jlong;

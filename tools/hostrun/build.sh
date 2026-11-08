@@ -14,7 +14,7 @@ mkdir -p "$OUT/obj" "$OUT/res"
 
 CFLAGS="-target x86_64-windows-gnu -O2 -g0 -w -std=gnu11 -D__JVM_OS_MINGW__=1 -DJIT_ENABLE=0
   -I$JVM -I$JVM/jvm -I$JVM/utils -I$JVM/utils/https -I$JVM/utils/https/mbedtls/include
-  -I$SRC -I$SRC/NativeBridge -I$SRC/Engine -Itools/hostrun"
+  -I$SRC -I$SRC/NativeBridge -Itools/hostrun"
 
 compile() {
     local src="$1"
@@ -27,7 +27,7 @@ export -f compile
 export ZIG CFLAGS OUT FORCE
 
 ls $JVM/jvm/*.c $JVM/utils/*.c $JVM/utils/https/*.c $JVM/utils/https/mbedtls/library/*.c \
-   $SRC/Engine/*.c $SRC/NativeBridge/j2me_input.c $SRC/NativeBridge/jvm_bridge.c \
+   $SRC/Graphics/*.c $SRC/Network/*.c $SRC/Storage/*.c $SRC/Input/j2me_input.c $SRC/Core/jvm_bridge.c \
    tools/hostrun/*.c | xargs -P 8 -I{} bash -c 'compile "{}"'
 
 "$ZIG" cc -target x86_64-windows-gnu -O2 -g0 -o "$OUT/hostrun.exe" "$OUT"/obj/*.o -lws2_32 -lwsock32 -lbcrypt -ladvapi32

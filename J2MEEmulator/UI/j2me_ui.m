@@ -6,8 +6,8 @@
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-#include "j2me_ui.h"
-#include "j2me_input.h"
+#include "UI/j2me_ui.h"
+#include "Input/j2me_input.h"
 #include "jvm.h"
 #include "jvm_util.h"
 #include <pthread.h>

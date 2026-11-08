@@ -6,8 +6,8 @@
 // an idle game uses no CPU and a key press is delivered immediately.
 //
 
-#include "j2me_input.h"
-#include "jvm_bridge.h"
+#include "Input/j2me_input.h"
+#include "Core/jvm_bridge.h"
 #include "jvm.h"
 #include "jvm_util.h"
 #include "tinycthread.h"

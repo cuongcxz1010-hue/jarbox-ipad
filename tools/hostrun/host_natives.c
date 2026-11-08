@@ -5,15 +5,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gfx_core.h"
-#include "gfx_text.h"
-#include "gfx_platform.h"
-#include "j2me_render.h"
-#include "j2me_input.h"
-#include "j2me_audio.h"
-#include "j2me_ui.h"
-#include "j2me_micro3d_gl.h"
-#include "m3g/j2me_m3g.h"
+#include "Graphics/gfx_core.h"
+#include "Graphics/gfx_text.h"
+#include "Graphics/gfx_platform.h"
+#include "Graphics/j2me_render.h"
+#include "Input/j2me_input.h"
+#include "Audio/j2me_audio.h"
+#include "UI/j2me_ui.h"
+#include "NativeBridge/j2me_micro3d_gl.h"
+#include "NativeBridge/m3g/j2me_m3g.h"
 #include "jvm.h"
 #include "jvm_util.h"
 

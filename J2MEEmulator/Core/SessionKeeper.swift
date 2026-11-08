@@ -3,7 +3,7 @@
 //  J2MEEmulator
 //
 //  Follows the game session through the iOS app life cycle using only what
-//  iOS allows. See docs/BACKGROUND.md.
+//  iOS allows. See docs/CHAY_NEN.md.
 //
 //  • App in the foreground: the game runs normally.
 //  • App switch or lock: iOS grants a short background task (usually around

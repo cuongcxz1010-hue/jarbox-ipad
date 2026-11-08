@@ -6,7 +6,7 @@
 //
 
 #import <AVFoundation/AVFoundation.h>
-#include "j2me_audio.h"
+#include "Audio/j2me_audio.h"
 #include "jvm.h"
 #include "jvm_util.h"
 #include <stdio.h>
@@ -19,7 +19,8 @@ static void ensureAudioSession(void) {
     static BOOL initialized = NO;
     if (!initialized) {
         NSError *error = nil;
-        [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:&error];
+        // Ambient: respects the silent switch and lets other apps' audio continue
+        [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryAmbient error:&error];
         [[AVAudioSession sharedInstance] setActive:YES error:&error];
         if (error) {
             printf("[J2ME Audio] Audio session error: %s\n",

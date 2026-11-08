@@ -43,17 +43,26 @@ private final class KeyRepeater {
     private var timer: Timer?
     private var step = 0
     private var fire: (() -> Void)?
+    private var customDelay: TimeInterval?
+    private var customInterval: TimeInterval = 0.08
 
-    func start(_ action: @escaping () -> Void) {
+    /// `delayMs` nil keeps J2ME Loader's schedule.
+    func start(delayMs: Int?, intervalMs: Int?, _ action: @escaping () -> Void) {
         stop()
         fire = action
         step = 0
+        customDelay = delayMs.map { TimeInterval($0) / 1000 }
+        customInterval = TimeInterval(intervalMs ?? 80) / 1000
         schedule()
     }
 
+    private func nextDelay() -> TimeInterval {
+        if let customDelay { return step == 0 ? customDelay : customInterval }
+        return step < Self.intervals.count ? Self.intervals[step] : 0.08
+    }
+
     private func schedule() {
-        let delay = step < Self.intervals.count ? Self.intervals[step] : 0.08
-        timer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: nextDelay(), repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.fire != nil else { return }
                 self.fire?()
@@ -78,6 +87,13 @@ struct KeyStyle {
     let border: UIColor
     let pressedFill: UIColor
     let pressedText: UIColor
+
+    static func of(_ theme: KeyTheme, fill: UIColor?, text: UIColor?) -> KeyStyle {
+        let base = of(theme)
+        guard fill != nil || text != nil else { return base }
+        let f = fill ?? base.fill, t = text ?? base.text
+        return KeyStyle(fill: f, text: t, border: base.border, pressedFill: t, pressedText: f)
+    }
 
     static func of(_ theme: KeyTheme) -> KeyStyle {
         switch theme {
@@ -123,8 +139,8 @@ final class VKeyView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func apply(theme: KeyTheme, shape: KeyShape) {
-        style = KeyStyle.of(theme)
+    func apply(theme: KeyTheme, shape: KeyShape, fill: UIColor? = nil, text: UIColor? = nil) {
+        style = KeyStyle.of(theme, fill: fill, text: text)
         self.shape = shape
         applyColors()
         setNeedsLayout()
@@ -180,12 +196,64 @@ final class VMenuButton: UIButton {
     }
 }
 
+// MARK: - Joystick
+
+/// 8-way joystick: a ring and a thumb. Touches are handled by the keyboard view.
+final class VJoystickView: UIView {
+    private let ring = CAShapeLayer()
+    private let thumb = CAShapeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        layer.addSublayer(ring)
+        layer.addSublayer(thumb)
+        applyColors(fill: UIColor(white: 0.8, alpha: 1), text: UIColor(red: 0, green: 0, blue: 0.5, alpha: 1))
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func applyColors(fill: UIColor, text: UIColor) {
+        ring.fillColor = fill.withAlphaComponent(0.55).cgColor
+        ring.strokeColor = UIColor.white.cgColor
+        ring.lineWidth = 1
+        thumb.fillColor = text.cgColor
+        thumb.strokeColor = UIColor.white.cgColor
+        thumb.lineWidth = 1
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        ring.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1)).cgPath
+        setThumb(dx: 0, dy: 0)
+    }
+
+    /// Offset as a fraction of the radius.
+    func setThumb(dx: CGFloat, dy: CGFloat) {
+        let radius = bounds.width / 2
+        let side = radius * 0.8
+        let box = CGRect(x: radius - side / 2 + dx * radius * 0.6, y: radius - side / 2 + dy * radius * 0.6, width: side, height: side)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        thumb.path = UIBezierPath(ovalIn: box).cgPath
+        CATransaction.commit()
+    }
+}
+
 // MARK: - Keyboard
 
 final class VirtualKeyboardView: UIView {
 
     private(set) var keyViews: [String: VKeyView] = [:]
     let menuButton: VMenuButton
+    let joystick = VJoystickView()
+
+    /// Joystick centre zone that counts as "no direction", 0…1 of the radius.
+    var joystickDeadZone: CGFloat = 0.25
+    private var joystickTouch: ObjectIdentifier?
+    private var joystickDirection: String?
+    private var repeatDelayMs: Int?
+    private var repeatIntervalMs: Int?
 
     /// Keys currently shown (frames are set by the owner on every layout).
     private var visibleIds: Set<String> = []
@@ -211,6 +279,7 @@ final class VirtualKeyboardView: UIView {
             keyViews[spec.id] = key
             addSubview(key)
         }
+        addSubview(joystick)
         addSubview(menuButton)
         keyHaptic.prepare()
     }
@@ -221,22 +290,31 @@ final class VirtualKeyboardView: UIView {
     var allKeyViews: [String: UIView] {
         var all: [String: UIView] = keyViews
         all["menu"] = menuButton
+        all["joystick"] = joystick
         return all
     }
 
-    func apply(theme: KeyTheme, shape: KeyShape) {
-        for key in keyViews.values { key.apply(theme: theme, shape: shape) }
-        menuButton.face.apply(theme: theme, shape: shape)
+    func apply(theme: KeyTheme, shape: KeyShape, fill: UIColor?, text: UIColor?, perKey: [String: UIColor] = [:]) {
+        for (id, key) in keyViews { key.apply(theme: theme, shape: shape, fill: perKey[id] ?? fill, text: text) }
+        menuButton.face.apply(theme: theme, shape: shape, fill: fill, text: text)
+        let style = KeyStyle.of(theme, fill: fill, text: text)
+        joystick.applyColors(fill: style.fill, text: style.text)
+    }
+
+    func setRepeat(delayMs: Int?, intervalMs: Int?) {
+        repeatDelayMs = delayMs
+        repeatIntervalMs = intervalMs
     }
 
     /// Place one key. `alpha` 0 hides it.
     func place(_ id: String, frame: CGRect, alpha: CGFloat, visible: Bool) {
-        let target: UIView? = id == "menu" ? menuButton : keyViews[id]
+        let target: UIView? = id == "menu" ? menuButton : (id == "joystick" ? joystick : keyViews[id])
         guard let view = target else { return }
         view.frame = frame
         view.alpha = alpha
         view.isHidden = !visible
         if visible { visibleIds.insert(id) } else { visibleIds.remove(id) }
+        if id == "joystick" && !visible { endJoystick() }
         if !visible, keyTouches[id] != nil { forceRelease(id) }
     }
 
@@ -250,7 +328,7 @@ final class VirtualKeyboardView: UIView {
     private func key(at point: CGPoint) -> String? {
         var best: String?
         var bestDistance = CGFloat.greatestFiniteMagnitude
-        for id in visibleIds where id != "menu" {
+        for id in visibleIds where id != "menu" && id != "joystick" {
             guard let v = keyViews[id] else { continue }
             let f = v.frame.insetBy(dx: -hitSlop, dy: -hitSlop)
             guard f.contains(point) else { continue }
@@ -264,16 +342,57 @@ final class VirtualKeyboardView: UIView {
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         if isEditing { return false }
         if visibleIds.contains("menu"), !menuButton.isHidden, menuButton.frame.contains(point) { return true }
-        return key(at: point) != nil
+        return key(at: point) != nil || isOnJoystick(point)
+    }
+
+    // MARK: Joystick
+
+    private func isOnJoystick(_ point: CGPoint) -> Bool {
+        guard visibleIds.contains("joystick"), !joystick.isHidden else { return false }
+        let radius = joystick.bounds.width / 2
+        return hypot(point.x - joystick.center.x, point.y - joystick.center.y) <= radius * 1.15
+    }
+
+    private static let sectors = ["right", "upRight", "up", "upLeft", "left", "downLeft", "down", "downRight"]
+
+    private func updateJoystick(_ point: CGPoint) {
+        let radius = max(1, joystick.bounds.width / 2)
+        var dx = (point.x - joystick.center.x) / radius
+        var dy = (point.y - joystick.center.y) / radius
+        let magnitude = hypot(dx, dy)
+        if magnitude > 1 { dx /= magnitude; dy /= magnitude }
+        joystick.setThumb(dx: dx, dy: dy)
+
+        var next: String?
+        if magnitude >= joystickDeadZone {
+            let angle = atan2(-dy, dx)
+            let sector = Int((angle / (.pi / 4)).rounded())
+            next = Self.sectors[((sector % 8) + 8) % 8]
+        }
+        guard next != joystickDirection else { return }
+        if let next { press(next) }
+        if let old = joystickDirection { release(old) }
+        joystickDirection = next
+    }
+
+    private func endJoystick() {
+        joystickTouch = nil
+        if let old = joystickDirection { release(old) }
+        joystickDirection = nil
+        joystick.setThumb(dx: 0, dy: 0)
     }
 
     // MARK: Touches
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for t in touches {
-            if let id = key(at: t.location(in: self)) {
+            let point = t.location(in: self)
+            if let id = key(at: point) {
                 touchKeys[ObjectIdentifier(t)] = id
                 press(id)
+            } else if joystickTouch == nil, isOnJoystick(point) {
+                joystickTouch = ObjectIdentifier(t)
+                updateJoystick(point)
             }
         }
     }
@@ -281,6 +400,10 @@ final class VirtualKeyboardView: UIView {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         for t in touches {
             let tid = ObjectIdentifier(t)
+            if tid == joystickTouch {
+                updateJoystick(t.location(in: self))
+                continue
+            }
             let now = key(at: t.location(in: self))
             let before = touchKeys[tid]
             guard now != before else { continue }
@@ -298,7 +421,12 @@ final class VirtualKeyboardView: UIView {
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         for t in touches {
-            if let id = touchKeys.removeValue(forKey: ObjectIdentifier(t)) { release(id) }
+            let tid = ObjectIdentifier(t)
+            if tid == joystickTouch {
+                endJoystick()
+            } else if let id = touchKeys.removeValue(forKey: tid) {
+                release(id)
+            }
         }
     }
 
@@ -323,7 +451,7 @@ final class VirtualKeyboardView: UIView {
         let repeater = repeaters[id] ?? KeyRepeater()
         repeaters[id] = repeater
         let codes = spec.codes
-        repeater.start {
+        repeater.start(delayMs: repeatDelayMs, intervalMs: repeatIntervalMs) {
             for code in codes { j2me_input_post_key(Int32(J2ME_INPUT_KEY_REPEATED), code) }
         }
     }
@@ -352,6 +480,9 @@ final class VirtualKeyboardView: UIView {
 
     /// Release every held key (screen change, app switch, editor).
     func releaseAll() {
+        joystickTouch = nil
+        joystickDirection = nil
+        joystick.setThumb(dx: 0, dy: 0)
         for id in Array(keyTouches.keys) { forceRelease(id) }
         touchKeys.removeAll()
     }
@@ -361,5 +492,21 @@ final class VirtualKeyboardView: UIView {
         for (id, view) in keyViews where keyTouches[id] == nil {
             if view.spec.codes == [code] { view.setPressed(pressed) }
         }
+    }
+}
+
+extension UIColor {
+    /// "#RRGGBB"
+    convenience init?(hex: String?) {
+        guard let hex, hex.hasPrefix("#"), hex.count == 7, let value = Int(hex.dropFirst(), radix: 16) else { return nil }
+        self.init(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255,
+                  blue: CGFloat(value & 255) / 255, alpha: 1)
+    }
+
+    var hexString: String {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: &a)
+        func channel(_ v: CGFloat) -> Int { Int((min(max(v, 0), 1) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", channel(r), channel(g), channel(b))
     }
 }

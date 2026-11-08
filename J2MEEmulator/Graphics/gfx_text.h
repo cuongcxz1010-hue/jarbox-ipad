@@ -10,7 +10,7 @@
 #ifndef GFX_TEXT_H
 #define GFX_TEXT_H
 
-#include "gfx_core.h"
+#include "Graphics/gfx_core.h"
 
 #ifdef __cplusplus
 extern "C" {

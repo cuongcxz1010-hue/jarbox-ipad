@@ -1,5 +1,5 @@
-#include "../Engine/gfx_core.h"
-#include "j2me_render.h"
+#include "Graphics/gfx_core.h"
+#include "Graphics/j2me_render.h"
 //
 // j2me_micro3d_gl.m — OpenGL ES 2.0 bridge for MascotCapsule micro3D on iOS
 //

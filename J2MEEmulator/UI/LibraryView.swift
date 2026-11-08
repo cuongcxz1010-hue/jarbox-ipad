@@ -22,12 +22,17 @@ struct GameEntry: Identifiable, Equatable {
     let icon: UIImage
     let lastPlayed: Date?
     let hasJad: Bool
+    let resolution: String
+    let playTime: TimeInterval
+    /// Why the game cannot start, when something is wrong with the JAR.
+    let problem: String?
 
     var path: String { id }
 
     static func == (a: GameEntry, b: GameEntry) -> Bool {
         a.id == b.id && a.name == b.name && a.lastPlayed == b.lastPlayed
             && a.sizeBytes == b.sizeBytes && a.vendor == b.vendor && a.version == b.version
+            && a.resolution == b.resolution && a.playTime == b.playTime && a.problem == b.problem
     }
 }
 
@@ -81,6 +86,8 @@ struct LibraryActions {
     var rename: (GameEntry) -> Void
     var clearData: (GameEntry) -> Void
     var delete: (GameEntry) -> Void
+    var backup: (GameEntry) -> Void
+    var restoreSnapshot: (GameEntry) -> Void
     var add: () -> Void
     var logs: () -> Void
     var help: () -> Void
@@ -198,6 +205,21 @@ struct LibraryView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// "240×320 · Đã chơi 2 giờ · Hôm qua" or the reason the game cannot start.
+    private func statusLine(_ game: GameEntry) -> String {
+        if let problem = game.problem { return problem }
+        var parts = [game.resolution]
+        let minutes = Int(game.playTime / 60)
+        if minutes >= 60 { parts.append("Đã chơi \(minutes / 60) giờ \(minutes % 60) phút") }
+        else if minutes > 0 { parts.append("Đã chơi \(minutes) phút") }
+        if let played = game.lastPlayed {
+            parts.append(played.formatted(.relative(presentation: .named)))
+        } else {
+            parts.append("Chưa chơi")
+        }
+        return parts.joined(separator: " · ")
+    }
+
     private func row(_ game: GameEntry) -> some View {
         HStack(spacing: 12) {
             Button {
@@ -219,12 +241,10 @@ struct LibraryView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
-                        if let played = game.lastPlayed {
-                            Text("Chơi lần cuối " + played.formatted(.relative(presentation: .named)))
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                        }
+                        Text(statusLine(game))
+                            .font(.caption)
+                            .foregroundStyle(game.problem == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.red))
+                            .lineLimit(1)
                     }
                     Spacer(minLength: 0)
                     Image(systemName: "play.circle.fill")
@@ -235,6 +255,22 @@ struct LibraryView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Chơi \(game.name)")
+
+            Button { actions.settings(game) } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 22))
+                    .frame(width: 40, height: 44)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Cài đặt \(game.name)")
+
+            Button(role: .destructive) { actions.delete(game) } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 20))
+                    .frame(width: 36, height: 44)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Xóa \(game.name)")
 
             Menu {
                 menuItems(game)
@@ -259,6 +295,13 @@ struct LibraryView: View {
         }
         Button { actions.rename(game) } label: {
             Label("Đổi tên", systemImage: "pencil")
+        }
+        Divider()
+        Button { actions.backup(game) } label: {
+            Label("Sao lưu game và dữ liệu…", systemImage: "externaldrive.badge.icloud")
+        }
+        Button { actions.restoreSnapshot(game) } label: {
+            Label("Khôi phục dữ liệu đã lưu", systemImage: "clock.arrow.circlepath")
         }
         Divider()
         Button { actions.clearData(game) } label: {

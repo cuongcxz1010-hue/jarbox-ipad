@@ -9,9 +9,9 @@
 #import <CoreHaptics/CoreHaptics.h>
 #import <Foundation/Foundation.h>
 #import <ImageIO/ImageIO.h>
-#include "j2me_render.h"
-#include "../Engine/gfx_platform.h"
-#include "../Engine/gfx_text.h"
+#include "Graphics/j2me_render.h"
+#include "Graphics/gfx_platform.h"
+#include "Graphics/gfx_text.h"
 #include <pthread.h>
 #include <stdatomic.h>
 

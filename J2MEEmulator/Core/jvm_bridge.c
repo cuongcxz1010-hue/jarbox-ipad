@@ -1,18 +1,18 @@
-#include "jvm_bridge.h"
+#include "Core/jvm_bridge.h"
 #include "jvm.h"
 #include "jvm_util.h"
 #include "garbage.h"
-#include "j2me_render.h"
-#include "j2me_input.h"
-#include "j2me_ui.h"
-#include "j2me_audio.h"
-#include "j2me_micro3d_gl.h"
-#include "m3g/j2me_m3g.h"
+#include "Graphics/j2me_render.h"
+#include "Input/j2me_input.h"
+#include "UI/j2me_ui.h"
+#include "Audio/j2me_audio.h"
+#include "NativeBridge/j2me_micro3d_gl.h"
+#include "NativeBridge/m3g/j2me_m3g.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdatomic.h>
 #include <signal.h>
-#include "../Engine/gfx_text.h"
+#include "Graphics/gfx_text.h"
 
 void net_natives_reg(MiniJVM *jvm);
 

@@ -59,11 +59,13 @@ test_device() {
     mkdir -p "$container/Documents/games"
     cp "$JARS"/*.jar "$container/Documents/games/"
 
-    SHOTS="3 45"
-    run_scenario "$udid" "${family}_selftest_portrait" \
-        SIMCTL_CHILD_JARBOX_AUTORUN=selftest.jar SIMCTL_CHILD_JARBOX_ORIENTATION=portrait
     SHOTS="6"
     run_scenario "$udid" "${family}_home" SIMCTL_CHILD_X=1
+    SHOTS="6"
+    run_scenario "$udid" "${family}_settings" SIMCTL_CHILD_JARBOX_SHOW_SETTINGS=1
+    SHOTS="30"
+    run_scenario "$udid" "${family}_selftest_portrait" \
+        SIMCTL_CHILD_JARBOX_AUTORUN=selftest.jar SIMCTL_CHILD_JARBOX_ORIENTATION=portrait
     SHOTS="8 16"
     run_scenario "$udid" "${family}_demo_landscape" \
         SIMCTL_CHILD_JARBOX_AUTORUN=demo.jar SIMCTL_CHILD_JARBOX_ORIENTATION=landscape

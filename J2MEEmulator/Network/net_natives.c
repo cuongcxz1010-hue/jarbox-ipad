@@ -49,7 +49,7 @@ typedef int sock_t;
 typedef socklen_t socklen_compat;
 #endif
 
-#include "jvm_bridge_stop.h"
+#include "Core/jvm_bridge_stop.h"
 
 // Option identifiers shared with NetNative.java
 enum { OPT_DELAY = 0, OPT_LINGER = 1, OPT_KEEPALIVE = 2, OPT_RCVBUF = 3, OPT_SNDBUF = 4, OPT_READ_TIMEOUT = 5 };

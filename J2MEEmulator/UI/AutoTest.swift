@@ -7,6 +7,7 @@
 //  are set by `simctl launch`:
 //    JARBOX_AUTORUN      file name of a game in Documents/games to start
 //    JARBOX_ORIENTATION  "landscape" or "portrait"
+//    JARBOX_SHOW_SETTINGS  any value: open the settings of the first game
 //    JARBOX_SCRIPT       "<ms> key <code>; <ms> tap <x> <y>; <ms> rotate <landscape|portrait>"
 //
 
@@ -16,6 +17,8 @@ enum AutoTest {
     private static var env: [String: String] { ProcessInfo.processInfo.environment }
 
     static var autorunJarName: String? { env["JARBOX_AUTORUN"] }
+    /// Open the settings of the first game, to see that screen.
+    static var showSettings: Bool { env["JARBOX_SHOW_SETTINGS"] != nil }
     static var forcedOrientation: GameOrientation? { env["JARBOX_ORIENTATION"].flatMap(GameOrientation.init(rawValue:)) }
 
     /// Run the timed script against a game screen.

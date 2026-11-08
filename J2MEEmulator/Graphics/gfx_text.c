@@ -3,7 +3,7 @@
 //  JarBox Graphics Engine — glyph cache and text layout
 //
 
-#include "gfx_text.h"
+#include "Graphics/gfx_text.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>

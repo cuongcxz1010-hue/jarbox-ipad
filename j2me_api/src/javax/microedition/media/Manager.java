@@ -10,9 +10,19 @@ public class Manager {
     public static final String TONE_DEVICE_LOCATOR = "device://tone";
     public static final String MIDI_DEVICE_LOCATOR = "device://midi";
 
+    /** False when the user turned this game's sound off. */
+    static boolean soundEnabled() {
+        return !"0".equals(System.getProperty("j2me.sound.enabled"));
+    }
+
     public static Player createPlayer(InputStream stream, String type) throws IOException, MediaException {
         if (stream == null) throw new IllegalArgumentException("stream is null");
         byte[] data = readAllBytes(stream);
+        if (type != null && type.contains("tone")) {
+            TonePlayer tone = new TonePlayer();
+            tone.setSequence(data);
+            return tone;
+        }
         if (type != null && (type.contains("midi") || type.contains("mid") || type.contains("sp-midi"))) {
             return new MidiPlayer(data);
         }
@@ -37,10 +47,18 @@ public class Manager {
             conn.close();
             return new MicroPlayer(data);
         }
+        if (locator.startsWith("resource:")) {
+            InputStream is = javax.microedition.util.GameResources.open(locator.substring(9));
+            if (is == null) throw new IOException("not found: " + locator);
+            String type = locator.toLowerCase().endsWith(".mid") || locator.toLowerCase().endsWith(".midi") ? "audio/midi" : "audio/wav";
+            return createPlayer(is, type);
+        }
         throw new MediaException("Unsupported locator: " + locator);
     }
 
     public static void playTone(int note, int duration, int volume) throws MediaException {
+        if (note < 0 || note > 127 || duration <= 0) throw new IllegalArgumentException();
+        if (!soundEnabled()) return;
         ToneManager.play(note, duration, volume);
     }
 
@@ -49,12 +67,13 @@ public class Manager {
             "audio/wav", "audio/x-wav",
             "audio/mpeg", "audio/mp3",
             "audio/midi", "audio/x-midi", "audio/sp-midi",
-            "audio/x-tone-seq"
+            "audio/x-tone-seq",
+            "audio/amr", "audio/3gpp"
         };
     }
 
     public static String[] getSupportedProtocols(String contentType) {
-        return new String[]{"device", "http", "https"};
+        return new String[]{"device", "http", "https", "resource"};
     }
 
     private static byte[] readAllBytes(InputStream is) throws IOException {
