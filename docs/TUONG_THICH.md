@@ -22,31 +22,30 @@ Bảng này cần bổ sung khi thử thêm game trên thiết bị. Các nhóm 
 
 ## Kiểm tra tự động (SelfTest)
 
-| Nhóm | Số mục | Kết quả trên Windows host |
-|---|---|---|
-| Máy ảo: số học, ngoại lệ, kế thừa, switch, đệ quy | 36 | Đạt, trừ `ArrayStoreException` |
-| Bytecode cũ: class file v45, `jsr`/`ret` | 1 | Đạt |
-| Chuỗi, UTF-8, DataInput/Output | 21 | Đạt |
-| Vector, Hashtable, Random, Calendar | 4 | Đạt |
-| Luồng: join, wait/notify, synchronized, Timer, sleep | 5 | Đạt |
-| GC | 3 | Đạt |
-| RMS: tạo, ghi, đọc, xóa, liệt kê, lưu lâu dài | 15 | Đạt |
-| Ảnh: PNG, RGB, vùng cắt, trong suốt | 15 | Đạt |
-| Graphics: điểm ảnh, clip, translate, tam giác, cung, góc bo, anchor, copyArea | 35 | Đạt |
-| Transform: cả 8 kiểu | 24 | Đạt |
-| GameCanvas, Sprite, TiledLayer, LayerManager | 8 | Đạt |
-| Font | 6 | Đạt |
-| MMAPI: vòng đời Player, âm lượng | 6 | Đạt |
-| TCP, UDP, HTTP qua loopback | 16 | Đạt |
-| HTTPS (example.com) | 1 | Đạt, trả 200 |
-| Sự kiện: luồng paint, showNotify, serviceRepaints, phím | 11 | Đạt |
-| Form, List, TextBox, Alert | 17 | Đạt |
-| MD5, SHA-1 | 2 | Đạt |
-| Thuộc tính hệ thống | 10 | Đạt |
+Tổng cộng 230 mục, đạt 229, không đạt 1 (`ArrayStoreException`). Kết quả giống nhau trên Windows host, iPad ảo và iPhone ảo.
+
+| Nhóm | Nội dung |
+|---|---|
+| Máy ảo | Số học, ngoại lệ, kế thừa, switch, đệ quy, chuyển đổi số thực |
+| Bytecode cũ | File class phiên bản 45, lệnh `jsr`/`ret` |
+| Chuỗi | UTF-8, tiếng Việt, DataInput/Output |
+| Luồng và bộ nhớ | join, wait/notify, synchronized, Timer, sleep, GC |
+| RMS | Tạo, ghi, đọc, sửa, xóa, liệt kê, lưu bền |
+| Ảnh | PNG, RGB, cắt vùng, trong suốt |
+| Graphics | Từng điểm ảnh của hình chữ nhật, đường, cung, tam giác, góc bo, clip, translate, anchor, copyArea |
+| Transform | Cả 8 kiểu của drawRegion và createImage |
+| Game API | GameCanvas, Sprite, TiledLayer, LayerManager |
+| Font, MMAPI | Đo chữ, vẽ chữ, vòng đời Player, âm lượng |
+| Mạng | TCP, UDP, HTTP qua loopback; HTTPS tới example.com |
+| Sự kiện | Luồng paint, showNotify, serviceRepaints, mã phím, hàm trùng tên với nền tảng |
+| Màn hình | Form, các Item, List, TextBox, Alert |
+| Khác | MD5, SHA-1, thuộc tính hệ thống |
+
+Âm thanh trong SelfTest chỉ kiểm tra vòng đời Player. Chưa có phép đo nào nghe được âm thanh thật.
 
 ## Độ phủ API
 
-Đối chiếu với `midp_2.0.jar` và `cldc_1.0.jar` thật theo từng phương thức: 1.490 mục, thiếu 1 (`Hashtable.rehash`, phương thức protected không game nào gọi).
+Đối chiếu với `midp_2.0.jar` và `cldc_1.0.jar` thật theo từng phương thức: 1.491 mục, thiếu 1 (`Hashtable.rehash`, phương thức protected không game nào gọi).
 
 | Nhóm API | Trạng thái | Ghi chú |
 |---|---|---|

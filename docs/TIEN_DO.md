@@ -37,7 +37,7 @@ Ghi lại những gì đã làm, đã kiểm tra bằng cách nào, và những 
 | Trùng tên hàm nội bộ `show()`, `hide()`, `refresh()` với hàm của game | Máy ảo gọi nhầm hàm của game, màn hình không đổi | Có, đổi tên hàm nội bộ |
 | `SHA1.digest(byte[], int, int)` của thư viện máy ảo trả về rỗng | Game băm SHA-1 nhận kết quả sai | Có |
 | Ép NaN sang số nguyên trên x86 sai | Chỉ ảnh hưởng Simulator Intel và bản Windows | Có |
-| `getImage` mutable, RGB, transform mất độ trong suốt | Ảnh cắt từ ảnh có nền trong bị nền trắng | Có |
+| `createImage` từ vùng ảnh và `createRGBImage` làm mất độ trong suốt | Ảnh có nền trong bị thành nền trắng | Có |
 | Mã biên dịch theo thư viện JDK, gọi hàm máy ảo không có | Lỗi `NoSuchMethodError` trên máy | Có, nay biên dịch theo đúng thư viện máy ảo |
 | `ArrayStoreException` không được ném | Game thật gần như không dựa vào | Chưa, ghi là giới hạn |
 

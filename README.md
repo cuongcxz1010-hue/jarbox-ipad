@@ -14,16 +14,16 @@ This project was almost entirely built using [Claude Code](https://claude.ai/cla
 ## Features
 
 - **MIDlet lifecycle** — load and run J2ME apps from JAR files
-- **2D rendering** — Canvas, Graphics, Image via Core Graphics (CGBitmapContext)
+- **2D rendering** — software renderer following the MIDP pixel rules; alpha, clipping, all 8 transforms
 - **Game API** — GameCanvas, Sprite, TiledLayer, LayerManager
 - **3D graphics** — MascotCapsule micro3D (OpenGL ES 2.0) and M3G JSR-184 (OpenGL ES 1.1)
 - **Audio** — WAV/MP3 (AVAudioPlayer), MIDI (AVMIDIPlayer + SoundFont), ToneControl
-- **Forms UI** — Form, List, Alert, TextBox rendered with native UIKit views
+- **Forms UI** — Form with every Item type, List, Alert, TextBox as native UIKit views
 - **RMS** — RecordStore persistence via file system
-- **Networking** — HTTP/HTTPS/Socket/UDP via miniJVM's built-in POSIX stack
-- **Input** — virtual joystick (8-way) + numpad, touch → pointer events
+- **Networking** — TCP with timeouts, UDP, server sockets, HTTP/HTTPS; works on IPv6-only networks
+- **Input** — J2ME Loader-style keyboard, 8-way joystick, per-brand key codes, editable layouts per game
 - **OEM extensions** — Nokia, Siemens, Samsung, Motorola, Vodafone, KDDI, JBlend, SprintPCS, SonyEricsson
-- **Per-game settings** — screen resolution, FPS limit, 3D supersampling (via long-tap menu)
+- **Per-game settings** — resolution, FPS, scaling, sound, key profiles, JVM heap, compatibility, backups
 
 ## Architecture
 
@@ -48,29 +48,29 @@ This project was almost entirely built using [Claude Code](https://claude.ai/cla
 
 **Requirements:** macOS with Xcode 26+, JDK 17+ (for compiling Java sources)
 
-1. Build the runtime JAR (one-time):
-   ```bash
-   cd miniJVM-2.0.0/binary && ./build_jar.sh
-   ```
+1. Build the J2ME API JAR: `bash j2me_api/build.sh`
+2. Open `J2MEEmulator.xcodeproj` in Xcode, select a device or simulator, and run.
 
-2. Build the J2ME API JAR:
-   ```bash
-   cd J2MEEmulator/j2me_api && ./build.sh
-   ```
+GitHub Actions builds an unsigned IPA (`build-ipa.yml`) and runs the app in the iOS Simulator with test MIDlets (`simulator-test.yml`).
 
-3. Open `J2MEEmulator/J2MEEmulator.xcodeproj` in Xcode, select a device or simulator, and run.
+## Testing
+
+| Tool | Purpose |
+|---|---|
+| `tools/hostrun` | Runs a real MIDlet on the real JVM and MIDP layer on Windows, scripted, with screenshots |
+| `test_midlet/selftest` | Automatic checks: JVM, MIDP, pixel rules, threads, RMS, sockets |
+| `test_midlet/demo` | Animated scene and interpreter benchmark |
+| `tools/ApiCheck.java` | Compares the API against real MIDP / CLDC stubs, or lists what a game needs |
+
+More in `docs/`: architecture, compatibility table, background behaviour, progress.
 
 ## Adding games
 
-Place `.jar` files into the app's Documents directory (accessible via the Files app or Xcode device file transfer). The app scans for JARs on launch and displays them in a springboard-style grid.
+Place `.jar` files into the app's Documents directory (accessible via the Files app or Xcode device file transfer). The app scans for JARs on launch and lists them in the library.
 
 ## Per-game configuration
 
-Long-press a game icon to access:
-- **Screen Resolution** — 16 presets from 101x80 to 480x800
-- **FPS Limit** — Unlimited, 15, 20, 30, 60 (default: 60)
-- **3D Enhancement** — supersampled MascotCapsule / M3G rendering (3x)
-- **Clear Game Data** / **Delete**
+Each game row has buttons for play, settings and delete; the ⋯ menu also has rename, backup, restore and clear data.
 
 ## License
 
