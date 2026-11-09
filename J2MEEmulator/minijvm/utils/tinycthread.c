@@ -604,9 +604,18 @@ int thrd_create(thrd_t *thr, thrd_start_t func, void *arg)
 #if defined(_TTHREAD_WIN32_)
   *thr = CreateThread(NULL, 0, _thrd_wrapper_function, (LPVOID) ti, 0, NULL);
 #elif defined(_TTHREAD_POSIX_)
-  if(pthread_create(thr, NULL, _thrd_wrapper_function, (void *)ti) != 0)
   {
-    *thr = 0;
+    /* A Java call recurses on the native stack. iOS gives new threads only
+       512 KB, too little to reach the JVM's own StackOverflowError limit.
+       The memory is committed only as it is touched. */
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 8 * 1024 * 1024);
+    if(pthread_create(thr, &attr, _thrd_wrapper_function, (void *)ti) != 0)
+    {
+      *thr = 0;
+    }
+    pthread_attr_destroy(&attr);
   }
 #endif
 
