@@ -19,6 +19,13 @@ private func postValue(item: Int, _ value: String) {
     j2me_input_post_event(Int32(J2ME_UI_ITEM_VALUE), Int32(item), 0)
 }
 
+/// iOS gives the keyboard back to this view when an alert closes. It may only
+/// take it while a TextBox is on screen.
+private final class ScreenTextView: UITextView {
+    var allowsFocus = false
+    override var canBecomeFirstResponder: Bool { allowsFocus && super.canBecomeFirstResponder }
+}
+
 // MARK: - Screen
 
 final class ScreenView: UIView, UITableViewDataSource, UITableViewDelegate, UITextViewDelegate {
@@ -28,7 +35,7 @@ final class ScreenView: UIView, UITableViewDataSource, UITableViewDelegate, UITe
     private let scrollView = UIScrollView()
     private let stack = UIStackView()
     private let table = UITableView()
-    private let textView = UITextView()
+    private let textView = ScreenTextView()
     private let commandBar = UIStackView()
     private let content = UIView()
 
@@ -125,7 +132,7 @@ final class ScreenView: UIView, UITableViewDataSource, UITableViewDelegate, UITe
         tickerLabel.text = ticker
         tickerLabel.isHidden = ticker == nil
 
-        if kind != "textbox" { textView.resignFirstResponder() }
+        if kind != "textbox" { releaseTextView() }
         scrollView.isHidden = kind != "form"
         table.isHidden = kind != "list"
         textView.isHidden = kind != "textbox"
@@ -227,6 +234,7 @@ final class ScreenView: UIView, UITableViewDataSource, UITableViewDelegate, UITe
         textView.isSecureTextEntry = (constraints & J2MEConstraints.password) != 0
         textView.keyboardType = UIKeyboardType.j2me(constraints)
         textView.isEditable = (constraints & J2MEConstraints.uneditable) == 0
+        textView.allowsFocus = true
         if textView.isEditable && !textView.isFirstResponder {
             DispatchQueue.main.async { [weak self] in self?.textView.becomeFirstResponder() }
         }
@@ -242,8 +250,14 @@ final class ScreenView: UIView, UITableViewDataSource, UITableViewDelegate, UITe
         return current.replacingCharacters(in: range, with: text).utf16.count <= textMaxSize
     }
 
+    private func releaseTextView() {
+        textView.allowsFocus = false
+        textView.resignFirstResponder()
+    }
+
     /// Called when another screen replaces this one.
     func reset() {
+        releaseTextView()
         endEditing(true)
         structure = ""
         rows = []
