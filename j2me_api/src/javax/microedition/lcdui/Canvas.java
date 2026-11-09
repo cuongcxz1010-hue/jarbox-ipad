@@ -55,6 +55,9 @@ public abstract class Canvas extends Displayable {
     private boolean sizeChangedCalled;
     private boolean fullScreen;
 
+    /** Per-game setting: some games offer a key-only interface when there is no touch. */
+    private static final boolean TOUCH_ENABLED = !"0".equals(System.getProperty("j2me.touch.enabled"));
+
     private static int fpsLimit;
     private long lastFrameTime = System.currentTimeMillis();
 
@@ -247,8 +250,8 @@ public abstract class Canvas extends Displayable {
     // Capabilities
     // ------------------------------------------------------------
 
-    public boolean hasPointerEvents() { return true; }
-    public boolean hasPointerMotionEvents() { return true; }
+    public boolean hasPointerEvents() { return TOUCH_ENABLED; }
+    public boolean hasPointerMotionEvents() { return TOUCH_ENABLED; }
     public boolean hasRepeatEvents() { return true; }
     public boolean isDoubleBuffered() { return true; }
 
@@ -271,6 +274,7 @@ public abstract class Canvas extends Displayable {
     }
 
     public void midpPostPointer(int type, int x, int y) {
+        if (!TOUCH_ENABLED) return;
         Display.postEvent(CanvasEvent.getInstance(this, type, 0, (float) x, (float) y));
     }
 

@@ -165,6 +165,12 @@ struct GameSettings {
         nonmutating set { store(newValue, "callPause_") }
     }
 
+    /// Tell the game the screen is a touch screen. Off: it may offer its key-only interface.
+    var touchInput: Bool {
+        get { bool("touch_", true) }
+        nonmutating set { store(newValue, "touch_") }
+    }
+
     /// Sound on or off for this game.
     var soundEnabled: Bool {
         get { bool("sound_", true) }
@@ -192,6 +198,7 @@ struct GameSettings {
         jvm_bridge_set_property("j2me.keyboard.layout", String(keyLayout.rawValue))
         jvm_bridge_set_property("j2me.call.pauseapp", callPauseApp ? "1" : "0")
         jvm_bridge_set_property("j2me.sound.enabled", soundEnabled ? "1" : "0")
+        jvm_bridge_set_property("j2me.touch.enabled", touchInput ? "1" : "0")
         jvm_bridge_set_property("j2me.net.connect.timeout", String(connectTimeoutSeconds * 1000))
         let res = resolution
         let sizes = resolvedFontSizes(longSide: max(res.w, res.h))

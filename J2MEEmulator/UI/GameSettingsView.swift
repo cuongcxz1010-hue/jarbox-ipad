@@ -45,6 +45,7 @@ struct GameSettingsView: View {
     @State private var repeatDelay: Double
     @State private var repeatInterval: Double
     @State private var haptics: Bool
+    @State private var touch: Bool
     @State private var keyLayout: KeyLayout
     @State private var fillColor: Color
     @State private var textColor: Color
@@ -104,6 +105,7 @@ struct GameSettingsView: View {
         _repeatDelay = State(initialValue: Double(active.repeatDelayMs ?? 400))
         _repeatInterval = State(initialValue: Double(active.repeatIntervalMs ?? 80))
         _haptics = State(initialValue: settings.keyHaptics)
+        _touch = State(initialValue: settings.touchInput)
         _keyLayout = State(initialValue: settings.keyLayout)
         _customColors = State(initialValue: active.fillColorHex != nil)
         _fillColor = State(initialValue: Color(UIColor(hex: active.fillColorHex) ?? .lightGray))
@@ -285,6 +287,7 @@ struct GameSettingsView: View {
                     Text(value.title).tag(value)
                 }
             }
+            Toggle("Game nhận cảm ứng", isOn: saving($touch) { settings.touchInput = $0 })
             Toggle("Rung khi bấm phím", isOn: saving($haptics) { settings.keyHaptics = $0 })
             if let onEditLayout {
                 Button {
@@ -296,7 +299,7 @@ struct GameSettingsView: View {
         } header: {
             Text("Điều khiển")
         } footer: {
-            Text("Trượt ngón giữa các phím để đổi hướng, bấm nhiều phím cùng lúc, giữ để bấm liên tục. Mỗi hồ sơ lưu kiểu bàn phím, màu, cỡ, vị trí từng phím (riêng ngang và dọc). Bộ mã phím áp dụng ở lần mở game tiếp theo.")
+            Text("Trượt ngón giữa các phím để đổi hướng, bấm nhiều phím cùng lúc, giữ để bấm liên tục. Mỗi hồ sơ lưu kiểu bàn phím, màu, cỡ, vị trí từng phím (riêng ngang và dọc). Bộ mã phím và cảm ứng áp dụng ở lần mở game tiếp theo. Tắt cảm ứng nếu game có giao diện riêng cho điện thoại phím.")
         }
     }
 
