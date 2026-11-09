@@ -66,6 +66,9 @@ test_device() {
     SHOTS="30"
     run_scenario "$udid" "${family}_selftest_portrait" \
         SIMCTL_CHILD_JARBOX_AUTORUN=selftest.jar SIMCTL_CHILD_JARBOX_ORIENTATION=portrait
+    SHOTS="14"
+    run_scenario "$udid" "${family}_bench" SIMCTL_CHILD_JARBOX_AUTORUN=bench.jar
+    grep BENCH "$OUT/${family}_bench.log"
     SHOTS="8 16"
     run_scenario "$udid" "${family}_demo_landscape" \
         SIMCTL_CHILD_JARBOX_AUTORUN=demo.jar SIMCTL_CHILD_JARBOX_ORIENTATION=landscape

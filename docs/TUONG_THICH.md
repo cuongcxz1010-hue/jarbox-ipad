@@ -77,6 +77,15 @@ Game gọi các API này sẽ không bị lỗi thiếu lớp, nhưng không có
 | `CustomItem` tương tác | Chỉ vẽ một lần |
 | Nokia M3D, Clipboard; Vodafone ImageEncoder | Lớp rỗng |
 
+## iPhone và iPad
+
+| Mục | Trạng thái |
+|---|---|
+| iPad và iPhone, dọc và ngang | Đã xem ảnh chụp trên Simulator. Phím và hình game không đè nhau |
+| Safe Area, Dynamic Island | Bố cục theo Safe Area, đã xem trên iPhone Simulator |
+| Khóa xoay màn hình theo từng game | Có |
+| Chia đôi màn hình iPad | Chưa bật. Bật thì iPadOS bỏ qua khóa xoay: chọn "Luôn nằm ngang" không còn tác dụng |
+
 ## Giới hạn đã biết của máy ảo
 
 - `ArrayStoreException` không được ném khi gán sai kiểu vào mảng đối tượng. Game thật gần như không dựa vào điều này.
