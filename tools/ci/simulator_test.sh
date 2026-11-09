@@ -66,6 +66,11 @@ test_device() {
     SHOTS="30"
     run_scenario "$udid" "${family}_selftest_portrait" \
         SIMCTL_CHILD_JARBOX_AUTORUN=selftest.jar SIMCTL_CHILD_JARBOX_ORIENTATION=portrait
+    SHOTS="8"
+    run_scenario "$udid" "${family}_joystick" \
+        SIMCTL_CHILD_JARBOX_AUTORUN=demo.jar SIMCTL_CHILD_JARBOX_JOYSTICK=1 \
+        "SIMCTL_CHILD_JARBOX_SCRIPT=3000 key -5; 4000 key -1; 5000 tap 120 160"
+    grep "keyPressed" "$OUT/${family}_joystick.log"
     SHOTS="14"
     run_scenario "$udid" "${family}_bench" SIMCTL_CHILD_JARBOX_AUTORUN=bench.jar
     grep BENCH "$OUT/${family}_bench.log"

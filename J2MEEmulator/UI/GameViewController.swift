@@ -159,6 +159,7 @@ class GameViewController: UIViewController {
             self?.networkBadge.isHidden = up
         }
 
+        if AutoTest.forceJoystick { profiles.active.useJoystick = true }
         setupMenuButton()
         setupAutoPressBadge()
         setupTyping()

@@ -8,6 +8,7 @@
 //    JARBOX_AUTORUN      file name of a game in Documents/games to start
 //    JARBOX_ORIENTATION  "landscape" or "portrait"
 //    JARBOX_SHOW_SETTINGS  any value: open the settings of the first game
+//    JARBOX_JOYSTICK     any value: show the joystick instead of the arrow keys
 //    JARBOX_SCRIPT       "<ms> key <code>; <ms> tap <x> <y>; <ms> rotate <landscape|portrait>"
 //
 
@@ -19,6 +20,8 @@ enum AutoTest {
     static var autorunJarName: String? { env["JARBOX_AUTORUN"] }
     /// Open the settings of the first game, to see that screen.
     static var showSettings: Bool { env["JARBOX_SHOW_SETTINGS"] != nil }
+    /// Use the joystick in this run.
+    static var forceJoystick: Bool { env["JARBOX_JOYSTICK"] != nil }
     static var forcedOrientation: GameOrientation? { env["JARBOX_ORIENTATION"].flatMap(GameOrientation.init(rawValue:)) }
 
     /// Run the timed script against a game screen.
