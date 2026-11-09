@@ -39,6 +39,7 @@ Ghi lại những gì đã làm, đã kiểm tra bằng cách nào, và những 
 | Ép NaN sang số nguyên trên x86 sai | Chỉ ảnh hưởng Simulator Intel và bản Windows | Có |
 | `createImage` từ vùng ảnh và `createRGBImage` làm mất độ trong suốt | Ảnh có nền trong bị thành nền trắng | Có |
 | Mã biên dịch theo thư viện JDK, gọi hàm máy ảo không có | Lỗi `NoSuchMethodError` trên máy | Có, nay biên dịch theo đúng thư viện máy ảo |
+| Đệ quy quá sâu làm cả ứng dụng thoát | Game không bắt được `StackOverflowError`, app đóng đột ngột | Có |
 | `ArrayStoreException` không được ném | Game thật gần như không dựa vào | Chưa, ghi là giới hạn |
 
 ## Còn lại

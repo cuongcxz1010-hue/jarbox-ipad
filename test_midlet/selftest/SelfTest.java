@@ -143,6 +143,7 @@ public class SelfTest extends MIDlet {
     // ------------------------------------------------------------
 
     private static int depth(int n) { return n == 0 ? 0 : 1 + depth(n - 1); }
+    private static int bottomless(int n) { return bottomless(n + 1) + 1; }
 
     interface Shape { int area(); }
     static class Square implements Shape { int s; Square(int s) { this.s = s; } public int area() { return s * s; } }
@@ -197,6 +198,12 @@ public class SelfTest extends MIDlet {
 
         check("finally", tryFinally(), 3);
         check("recursion", depth(2000), 2000);
+        try {
+            bottomless(0);
+            check("stack overflow", false);
+        } catch (StackOverflowError e) {
+            check("stack overflow", true);
+        }
         check("virtual dispatch", new Cube(2).area(), 24);
         Shape s = new Square(3);
         check("interface dispatch", s.area(), 9);

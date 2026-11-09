@@ -146,6 +146,8 @@ static s32 filterClassName(Utf8String *clsName) {
     return 0;
 }
 
+#define STACK_OVERFLOW_RESERVE 256
+
 #define check_gc_pause(offset){\
     if (offset < 0 && thrd_info->suspend_count) {\
         \
@@ -604,11 +606,16 @@ s32 execute_method_impl(MethodInfo *method, Runtime *pruntime) {
         if (ca) {
 
 
-            if (stack->max_size < (stack->sp - stack->store) + ca->max_stack) {
+            // Deep recursion ends in StackOverflowError, which the game may catch.
+            // The last entries are kept for building that error.
+            s32 stack_needed = (s32) (stack->sp - stack->store) + ca->max_locals + ca->max_stack;
+            s32 stack_overflow = stack_needed > stack->max_size - STACK_OVERFLOW_RESERVE && !runtime->thrd_info->stack_overflowing;
+            if (stack_needed > stack->max_size) {
                 jvm_printf("Stack overflow :\n");
                 print_runtime_stack(runtime);
                 exit(1);
             }
+
             runtime->pc = ca->code;
 
             localvar_init(runtime, ca->max_locals, method->para_slots);
@@ -666,6 +673,13 @@ s32 execute_method_impl(MethodInfo *method, Runtime *pruntime) {
                 // Debugger hooks only when a debugger can attach (never in JarBox):
                 // checked once per method call instead of a function call per bytecode.
                 const s32 jdwp_on = jvm->jdwp_enable && jvm->jdwpserver;
+                if (stack_overflow) {
+                    runtime->thrd_info->stack_overflowing = 1;
+                    exception_throw(JVM_ERROR_STACKOVERFLOW, runtime, NULL);
+                    runtime->thrd_info->stack_overflowing = 0;
+                    sp = stack->sp;
+                    goto label_exception_handle;
+                }
                 do {
                     if (jdwp_on && jdwp_client_count(jvm->jdwpserver)) {
                         stack->sp = sp;

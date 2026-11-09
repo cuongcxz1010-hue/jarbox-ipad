@@ -22,11 +22,11 @@ Bảng này cần bổ sung khi thử thêm game trên thiết bị. Các nhóm 
 
 ## Kiểm tra tự động (SelfTest)
 
-Tổng cộng 230 mục, đạt 229, không đạt 1 (`ArrayStoreException`). Kết quả giống nhau trên Windows host, iPad ảo và iPhone ảo.
+Tổng cộng 231 mục, đạt 230, không đạt 1 (`ArrayStoreException`).
 
 | Nhóm | Nội dung |
 |---|---|
-| Máy ảo | Số học, ngoại lệ, kế thừa, switch, đệ quy, chuyển đổi số thực |
+| Máy ảo | Số học, ngoại lệ, kế thừa, switch, đệ quy, `StackOverflowError`, chuyển đổi số thực |
 | Bytecode cũ | File class phiên bản 45, lệnh `jsr`/`ret` |
 | Chuỗi | UTF-8, tiếng Việt, DataInput/Output |
 | Luồng và bộ nhớ | join, wait/notify, synchronized, Timer, sleep, GC |

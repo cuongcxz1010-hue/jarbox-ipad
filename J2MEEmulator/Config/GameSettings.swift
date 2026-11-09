@@ -194,18 +194,18 @@ struct GameSettings {
         jvm_bridge_set_property("j2me.sound.enabled", soundEnabled ? "1" : "0")
         jvm_bridge_set_property("j2me.net.connect.timeout", String(connectTimeoutSeconds * 1000))
         let res = resolution
-        let sizes = resolvedFontSizes(height: min(res.w, res.h))
+        let sizes = resolvedFontSizes(longSide: max(res.w, res.h))
         jvm_bridge_set_font_sizes(Int32(sizes.small), Int32(sizes.medium), Int32(sizes.large))
         jvm_bridge_set_heap_limit(Int32(heapMB))
     }
 
-    /// J2ME Loader's table: font sizes by the shorter screen side, unless the user set them.
-    private func resolvedFontSizes(height: Int) -> (small: Int, medium: Int, large: Int) {
+    /// J2ME Loader's table: font sizes by the longer screen side, unless the user set them.
+    private func resolvedFontSizes(longSide: Int) -> (small: Int, medium: Int, large: Int) {
         let user = fontSizes
         if user.small > 0 && user.medium > 0 && user.large > 0 { return user }
-        if height <= 128 { return (9, 13, 15) }
-        if height <= 176 { return (13, 15, 20) }
-        if height <= 220 { return (15, 18, 22) }
+        if longSide <= 128 { return (9, 13, 15) }
+        if longSide <= 176 { return (13, 15, 20) }
+        if longSide <= 220 { return (15, 18, 22) }
         return (18, 22, 26)
     }
 

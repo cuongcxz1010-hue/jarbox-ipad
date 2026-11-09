@@ -39,7 +39,7 @@ extern "C" {
 #define GARBAGE_OVERLOAD_DEFAULT 90  // overload of max heap size ,will active garbage collection
 #define GARBAGE_PERIOD_MS_DEFAULT 10 * 1000
 #define MAX_HEAP_SIZE_DEFAULT  200 * 1024 * 1024
-#define MAX_STACK_SIZE_DEFAULT 4096
+#define MAX_STACK_SIZE_DEFAULT 4352
 
 
 //#pragma GCC diagnostic error "-Wframe-larger-than="
@@ -462,6 +462,7 @@ enum {
     JVM_EXCEPTION_VMSTOP,
     JVM_EXCEPTION_ILLEGALTHREADSTATE,
     JVM_EXCEPTION_ILLEGALMONITORSTATE,
+    JVM_ERROR_STACKOVERFLOW,
 };
 
 enum {
@@ -1334,6 +1335,7 @@ struct _JavaThreadInfo {
     u8 volatile is_suspend;
     u8 volatile is_unparked;
     u8 volatile is_blocking;// some of native method will enter blocking state
+    u8 stack_overflowing;// building a StackOverflowError: its constructors use the reserve
     u8 volatile is_stop; //thread is marked as stop status, need set is_interrupt=1 also
     u8 volatile is_interrupt; //thread is marked as interrupt, set by Thread.interrupt();
     u8 type;// gc /jdwp /normal
