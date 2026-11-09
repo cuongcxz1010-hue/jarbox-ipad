@@ -25,13 +25,13 @@ public class ImageItem extends Item {
     }
 
     public Image getImage() { return image; }
-    public void setImage(Image img) { image = img; changed(); }
+    public void setImage(Image img) { image = img; midpChanged(); }
     public String getAltText() { return altText; }
-    public void setAltText(String text) { altText = text; changed(); }
+    public void setAltText(String text) { altText = text; midpChanged(); }
     public int getAppearanceMode() { return appearanceMode; }
 
     @Override
-    void writeContent(ScreenWriter out) {
+    void midpWrite(ScreenWriter out) {
         out.field("kind", "image");
         out.field("alt", altText);
         out.image("image", image);

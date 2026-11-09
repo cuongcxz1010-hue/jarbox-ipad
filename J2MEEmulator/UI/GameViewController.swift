@@ -706,6 +706,7 @@ class GameViewController: UIViewController {
         ed.onScale = { [weak self] id, scale, finished in self?.editorScale(id, scale: scale, finished: finished) }
         ed.onOpacity = { [weak self] id, value in self?.editorOpacity(id, value) }
         ed.onToggleHidden = { [weak self] id in self?.editorToggleHidden(id) }
+        ed.onColor = { [weak self] id, hex in self?.editorColor(id, hex) }
         ed.onReset = { [weak self] in
             guard let self else { return }
             self.profiles.resetPlacements(portrait: self.isPortraitNow)
@@ -770,6 +771,14 @@ class GameViewController: UIViewController {
         var p = currentPlacement(id)
         p.opacity = value
         profiles.setPlacement(p, id, portrait: isPortraitNow)
+        view.setNeedsLayout()
+    }
+
+    private func editorColor(_ id: String, _ hex: String?) {
+        var p = currentPlacement(id)
+        p.color = hex
+        profiles.setPlacement(p, id, portrait: isPortraitNow)
+        appliedLook = nil
         view.setNeedsLayout()
     }
 

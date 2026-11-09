@@ -21,7 +21,7 @@ public class Gauge extends Item {
 
     public void setValue(int v) {
         value = maxValue >= 0 && v > maxValue ? maxValue : (v < 0 && maxValue >= 0 ? 0 : v);
-        changed();
+        midpChanged();
     }
 
     public int getMaxValue() { return maxValue; }
@@ -29,13 +29,13 @@ public class Gauge extends Item {
     public void setMaxValue(int m) {
         maxValue = m;
         if (m >= 0 && value > m) value = m;
-        changed();
+        midpChanged();
     }
 
     public boolean isInteractive() { return interactive; }
 
     @Override
-    void writeContent(ScreenWriter out) {
+    void midpWrite(ScreenWriter out) {
         out.field("kind", "gauge");
         out.field("interactive", interactive);
         out.field("max", maxValue);
@@ -43,7 +43,7 @@ public class Gauge extends Item {
     }
 
     @Override
-    boolean onNativeValue(String v) {
+    boolean midpNativeValue(String v) {
         try {
             int parsed = Integer.parseInt(v);
             if (parsed == value) return false;

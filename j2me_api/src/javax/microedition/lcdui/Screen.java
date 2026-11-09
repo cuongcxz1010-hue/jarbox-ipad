@@ -6,39 +6,39 @@ public abstract class Screen extends Displayable {
     private boolean shown;
 
     /** Describe this screen for the platform. */
-    abstract void writeContent(ScreenWriter out);
+    abstract void midpWrite(ScreenWriter out);
 
     @Override
-    void show() {
+    void midpShow() {
         shown = true;
-        refresh();
+        midpRefresh();
     }
 
     @Override
-    void hide() {
+    void midpHide() {
         shown = false;
     }
 
     @Override
-    void refresh() {
+    void midpRefresh() {
         if (!shown) return;
         ScreenWriter out = new ScreenWriter();
         out.beginObject();
-        writeContent(out);
+        midpWrite(out);
         out.field("title", getTitle());
         Ticker t = getTicker();
         if (t != null) out.field("ticker", t.getString());
-        out.commands("commands", getCommands());
+        out.commands("commands", midpCommands());
         out.endObject();
         NativeBridge.showScreen(out.toString());
     }
 
     /** Apply a value entered natively for the element with this position. */
-    void onNativeValue(int index, String value) { }
+    void midpNativeValue(int index, String value) { }
 
     /** A row of a list was chosen. */
-    void onListSelect(int index) { }
+    void midpListSelect(int index) { }
 
     /** A command belonging to an item was chosen. */
-    void onItemCommand(int itemIndex, int commandIndex) { }
+    void midpItemCommand(int itemIndex, int commandIndex) { }
 }

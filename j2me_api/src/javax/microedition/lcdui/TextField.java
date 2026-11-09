@@ -23,22 +23,22 @@ public class TextField extends Item {
     }
 
     public String getString() { return editor.getString(); }
-    public void setString(String text) { editor.setString(text); changed(); }
+    public void setString(String text) { editor.setString(text); midpChanged(); }
     public int getChars(char[] data) { return editor.getChars(data); }
-    public void setChars(char[] data, int offset, int length) { editor.setChars(data, offset, length); changed(); }
-    public void insert(String src, int position) { editor.insert(src, position); changed(); }
-    public void insert(char[] data, int offset, int length, int position) { editor.insert(data, offset, length, position); changed(); }
-    public void delete(int offset, int length) { editor.delete(offset, length); changed(); }
+    public void setChars(char[] data, int offset, int length) { editor.setChars(data, offset, length); midpChanged(); }
+    public void insert(String src, int position) { editor.insert(src, position); midpChanged(); }
+    public void insert(char[] data, int offset, int length, int position) { editor.insert(data, offset, length, position); midpChanged(); }
+    public void delete(int offset, int length) { editor.delete(offset, length); midpChanged(); }
     public int getMaxSize() { return editor.getMaxSize(); }
-    public int setMaxSize(int maxSize) { int r = editor.setMaxSize(maxSize); changed(); return r; }
+    public int setMaxSize(int maxSize) { int r = editor.setMaxSize(maxSize); midpChanged(); return r; }
     public int getConstraints() { return editor.getConstraints(); }
-    public void setConstraints(int constraints) { editor.setConstraints(constraints); changed(); }
+    public void setConstraints(int constraints) { editor.setConstraints(constraints); midpChanged(); }
     public int size() { return editor.size(); }
     public int getCaretPosition() { return editor.size(); }
     public void setInitialInputMode(String characterSubset) { }
 
     @Override
-    void writeContent(ScreenWriter out) {
+    void midpWrite(ScreenWriter out) {
         out.field("kind", "text");
         out.field("text", editor.getString());
         out.field("maxSize", editor.getMaxSize());
@@ -46,7 +46,7 @@ public class TextField extends Item {
     }
 
     @Override
-    boolean onNativeValue(String value) {
+    boolean midpNativeValue(String value) {
         if (value.equals(editor.getString())) return false;
         editor.setFromUser(value);
         return true;

@@ -50,12 +50,12 @@ public class CanvasEvent extends Event {
 	public void process() {
 		try {
 			switch (eventType) {
-				case KEY_PRESSED:      canvas.doKeyPressed(keyCode); break;
-				case KEY_REPEATED:     canvas.doKeyRepeated(keyCode); break;
-				case KEY_RELEASED:     canvas.doKeyReleased(keyCode); break;
-				case POINTER_PRESSED:  canvas.doPointerPressed(x, y); break;
-				case POINTER_DRAGGED:  canvas.doPointerDragged(x, y); break;
-				case POINTER_RELEASED: canvas.doPointerReleased(x, y); break;
+				case KEY_PRESSED:      canvas.midpKeyPressed(keyCode); break;
+				case KEY_REPEATED:     canvas.midpKeyRepeated(keyCode); break;
+				case KEY_RELEASED:     canvas.midpKeyReleased(keyCode); break;
+				case POINTER_PRESSED:  canvas.midpPointerPressed(x, y); break;
+				case POINTER_DRAGGED:  canvas.midpPointerDragged(x, y); break;
+				case POINTER_RELEASED: canvas.midpPointerReleased(x, y); break;
 			}
 		} catch (Throwable t) {
 			System.out.println("[Canvas] Error in input callback: " + t);

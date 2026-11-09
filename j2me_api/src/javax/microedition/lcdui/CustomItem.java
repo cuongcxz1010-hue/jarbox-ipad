@@ -53,7 +53,7 @@ public abstract class CustomItem extends Item {
 	}
 
 	protected final void invalidate() {
-		changed();
+		midpChanged();
 	}
 
 	protected final void repaint() {
@@ -61,7 +61,7 @@ public abstract class CustomItem extends Item {
 	}
 
 	protected final void repaint(int x, int y, int width, int height) {
-		changed();
+		midpChanged();
 	}
 
 	protected boolean traverse(int dir, int viewportWidth, int viewportHeight, int[] visRect_inout) {
@@ -96,7 +96,7 @@ public abstract class CustomItem extends Item {
 	}
 
 	@Override
-	void writeContent(ScreenWriter out) {
+	void midpWrite(ScreenWriter out) {
 		int w = Math.max(getMinContentWidth(), getPrefContentWidth(-1));
 		int h = Math.max(getMinContentHeight(), getPrefContentHeight(w));
 		if (w <= 0) w = 1;

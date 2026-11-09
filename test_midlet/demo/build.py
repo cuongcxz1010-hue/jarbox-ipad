@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build demo.jar. Usage: build.py <minijvm_rt.jar> <j2me_api.jar> <output.jar>"""
+"""Build demo.jar and bench.jar next to each other.
+Usage: build.py <minijvm_rt.jar> <j2me_api.jar> <output demo.jar>"""
 import os
 import shutil
 import subprocess
@@ -10,15 +11,16 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def main(rt, api, output):
+def build(rt, api, source, main, output):
     javac = shutil.which("javac") or "javac"
     with tempfile.TemporaryDirectory() as tmp:
-        subprocess.check_call([javac, "-source", "8", "-target", "8", "-bootclasspath", api + os.pathsep + rt, "-nowarn", "-encoding", "UTF-8",
-                               "-d", tmp, os.path.join(HERE, "Demo.java")])
+        subprocess.check_call([javac, "-source", "8", "-target", "8", "-bootclasspath", api + os.pathsep + rt, "-nowarn",
+                               "-encoding", "UTF-8", "-d", tmp, os.path.join(HERE, source)],
+                              stderr=subprocess.DEVNULL)
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("META-INF/MANIFEST.MF",
-                       "Manifest-Version: 1.0\r\nMIDlet-Name: JarBox Demo\r\nMIDlet-Version: 1.0\r\n"
-                       "MIDlet-Vendor: JarBox\r\nMIDlet-1: Demo,,Demo\r\n\r\n")
+                       "Manifest-Version: 1.0\r\nMIDlet-Name: JarBox %s\r\nMIDlet-Version: 1.0\r\n"
+                       "MIDlet-Vendor: JarBox\r\nMIDlet-1: %s,,%s\r\n\r\n" % (main, main, main))
             for root, _, names in os.walk(tmp):
                 for n in names:
                     path = os.path.join(root, n)
@@ -27,4 +29,6 @@ def main(rt, api, output):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2], sys.argv[3])
+    rt, api, output = sys.argv[1:4]
+    build(rt, api, "Demo.java", "Demo", output)
+    build(rt, api, "Bench.java", "Bench", os.path.join(os.path.dirname(output), "bench.jar"))

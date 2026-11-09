@@ -32,16 +32,16 @@ public abstract class Item {
     private int layout = LAYOUT_DEFAULT;
     private int preferredWidth = -1, preferredHeight = -1;
 
-    public void setLabel(String label) { this.label = label; changed(); }
+    public void setLabel(String label) { this.label = label; midpChanged(); }
     public String getLabel() { return label; }
 
     public void addCommand(Command cmd) {
         if (cmd == null) throw new NullPointerException();
-        if (!commands.contains(cmd)) { commands.add(cmd); changed(); }
+        if (!commands.contains(cmd)) { commands.add(cmd); midpChanged(); }
     }
 
     public void removeCommand(Command cmd) {
-        if (commands.remove(cmd)) changed();
+        if (commands.remove(cmd)) midpChanged();
     }
 
     public void setItemCommandListener(ItemCommandListener l) { commandListener = l; }
@@ -49,10 +49,10 @@ public abstract class Item {
     public void setDefaultCommand(Command cmd) {
         defaultCommand = cmd;
         if (cmd != null) addCommand(cmd);
-        changed();
+        midpChanged();
     }
 
-    public void setLayout(int layout) { this.layout = layout; changed(); }
+    public void setLayout(int layout) { this.layout = layout; midpChanged(); }
     public int getLayout() { return layout; }
     public int getMinimumWidth() { return 0; }
     public int getMinimumHeight() { return 0; }
@@ -66,32 +66,32 @@ public abstract class Item {
 
     public void notifyStateChanged() {
         Form f = owner;
-        if (f != null) f.notifyItemStateChanged(this);
+        if (f != null) f.midpNotifyItemState(this);
     }
 
     /** The content changed: redraw it if it is on screen. */
-    void changed() {
+    void midpChanged() {
         Form f = owner;
-        if (f != null) f.contentChanged();
+        if (f != null) f.midpContentChanged();
     }
 
-    final void writeTo(ScreenWriter out) {
+    final void midpWriteTo(ScreenWriter out) {
         out.beginObject();
         out.field("label", label);
         out.field("layout", layout);
-        writeContent(out);
+        midpWrite(out);
         if (!commands.isEmpty()) out.commands("commands", commands);
         if (defaultCommand != null) out.field("defaultCommand", commands.indexOf(defaultCommand));
         out.endObject();
     }
 
-    abstract void writeContent(ScreenWriter out);
+    abstract void midpWrite(ScreenWriter out);
 
     /** Apply a value entered natively; return true when it was a real change. */
-    boolean onNativeValue(String value) { return false; }
+    boolean midpNativeValue(String value) { return false; }
 
     /** The command at this position in the item's list was chosen. */
-    final void fireItemCommand(int index) {
+    final void midpFireItemCommand(int index) {
         if (commandListener != null && index >= 0 && index < commands.size()) {
             Display.postEvent(CommandActionEvent.getInstance(commandListener, commands.get(index), this));
         }

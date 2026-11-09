@@ -17,13 +17,13 @@ public class StringItem extends Item {
     }
 
     public String getText() { return text; }
-    public void setText(String text) { this.text = text; changed(); }
+    public void setText(String text) { this.text = text; midpChanged(); }
     public int getAppearanceMode() { return appearanceMode; }
     public Font getFont() { return font; }
-    public void setFont(Font font) { this.font = font != null ? font : Font.getDefaultFont(); changed(); }
+    public void setFont(Font font) { this.font = font != null ? font : Font.getDefaultFont(); midpChanged(); }
 
     @Override
-    void writeContent(ScreenWriter out) {
+    void midpWrite(ScreenWriter out) {
         out.field("kind", "string");
         out.field("text", text == null ? "" : text);
         out.field("appearance", appearanceMode);

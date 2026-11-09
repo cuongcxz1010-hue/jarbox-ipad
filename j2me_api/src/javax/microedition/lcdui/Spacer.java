@@ -11,7 +11,7 @@ public class Spacer extends Item {
         if (w < 0 || h < 0) throw new IllegalArgumentException();
         minWidth = w;
         minHeight = h;
-        changed();
+        midpChanged();
     }
 
     public void setLabel(String label) { throw new IllegalStateException(); }
@@ -19,7 +19,7 @@ public class Spacer extends Item {
     public void setDefaultCommand(Command cmd) { throw new IllegalStateException(); }
 
     @Override
-    void writeContent(ScreenWriter out) {
+    void midpWrite(ScreenWriter out) {
         out.field("kind", "spacer");
         out.field("width", minWidth);
         out.field("height", minHeight);

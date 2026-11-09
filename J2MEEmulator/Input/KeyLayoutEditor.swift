@@ -24,6 +24,7 @@ final class KeyLayoutEditorView: UIView, UIGestureRecognizerDelegate {
     var onScale: ((String, Double, Bool) -> Void)?     // id, new scale, finished
     var onOpacity: ((String, Double) -> Void)?
     var onToggleHidden: ((String) -> Void)?
+    var onColor: ((String, String?) -> Void)?          // id, "#RRGGBB" or nil for the profile colour
     var onReset: (() -> Void)?
     var onDone: (() -> Void)?
 
@@ -130,7 +131,8 @@ final class KeyLayoutEditorView: UIView, UIGestureRecognizerDelegate {
         let sizeRow = UIStackView(arrangedSubviews: [sizeLabel, sizeSlider])
         let opacityRow = UIStackView(arrangedSubviews: [opacityLabel, opacitySlider])
         for row in [sizeRow, opacityRow] { row.spacing = 10; row.alignment = .center }
-        let stack = UIStackView(arrangedSubviews: [inspectorTitle, sizeRow, opacityRow, hideButton])
+        let colorRow = makeColorRow()
+        let stack = UIStackView(arrangedSubviews: [inspectorTitle, sizeRow, opacityRow, colorRow, hideButton])
         stack.axis = .vertical
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -141,6 +143,26 @@ final class KeyLayoutEditorView: UIView, UIGestureRecognizerDelegate {
             stack.trailingAnchor.constraint(equalTo: inspector.trailingAnchor, constant: -16),
             stack.bottomAnchor.constraint(equalTo: inspector.bottomAnchor, constant: -14),
         ])
+    }
+
+    private static let swatches: [String?] = [nil, "#D0D0D0", "#303030", "#C03030", "#30A050", "#3060D0", "#E0A020"]
+
+    private func makeColorRow() -> UIView {
+        let row = UIStackView()
+        row.spacing = 8
+        row.distribution = .equalSpacing
+        for hex in Self.swatches {
+            var config = UIButton.Configuration.plain()
+            config.image = UIImage(systemName: hex == nil ? "circle.slash" : "circle.fill")
+            config.baseForegroundColor = UIColor(hex: hex) ?? .white
+            let button = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in
+                guard let self, let id = self.selectedId else { return }
+                self.onColor?(id, hex)
+            })
+            button.accessibilityLabel = hex == nil ? "Màu mặc định" : "Màu \(hex!)"
+            row.addArrangedSubview(button)
+        }
+        return row
     }
 
     override func layoutSubviews() {

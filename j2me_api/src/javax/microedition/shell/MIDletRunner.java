@@ -35,7 +35,7 @@ public class MIDletRunner {
     private static volatile boolean paused;
     private static volatile MIDlet midlet;
     private static String midletClassName;
-    private static boolean callPauseApp;
+    private static boolean midpPauseApp;
     private static int settingsFps;
 
     public static void main(String[] args) {
@@ -78,7 +78,7 @@ public class MIDletRunner {
             settingsFps = Integer.parseInt(fps);
             Canvas.setLimitFps(settingsFps);
         }
-        callPauseApp = "1".equals(System.getProperty("j2me.call.pauseapp"));
+        midpPauseApp = "1".equals(System.getProperty("j2me.call.pauseapp"));
 
         Display.startEventThread();
 
@@ -95,7 +95,7 @@ public class MIDletRunner {
             midlet = created;
             Display.getDisplay(created);
             System.out.println("[MIDletRunner] startApp()");
-            created.callStartApp();
+            created.midpStartApp();
         } catch (Throwable t) {
             System.out.println("[MIDletRunner] MIDlet failed to start: " + t);
             t.printStackTrace();
@@ -124,22 +124,22 @@ public class MIDletRunner {
         Displayable current = display.currentDisplayable();
         switch (type) {
             case POINTER_PRESSED:
-                if (current instanceof Canvas) ((Canvas) current).postPointerEvent(CanvasEvent.POINTER_PRESSED, e[1], e[2]);
+                if (current instanceof Canvas) ((Canvas) current).midpPostPointer(CanvasEvent.POINTER_PRESSED, e[1], e[2]);
                 break;
             case POINTER_DRAGGED:
-                if (current instanceof Canvas) ((Canvas) current).postPointerEvent(CanvasEvent.POINTER_DRAGGED, e[1], e[2]);
+                if (current instanceof Canvas) ((Canvas) current).midpPostPointer(CanvasEvent.POINTER_DRAGGED, e[1], e[2]);
                 break;
             case POINTER_RELEASED:
-                if (current instanceof Canvas) ((Canvas) current).postPointerEvent(CanvasEvent.POINTER_RELEASED, e[1], e[2]);
+                if (current instanceof Canvas) ((Canvas) current).midpPostPointer(CanvasEvent.POINTER_RELEASED, e[1], e[2]);
                 break;
             case KEY_PRESSED:
-                if (current instanceof Canvas) ((Canvas) current).postKeyEvent(CanvasEvent.KEY_PRESSED, e[3]);
+                if (current instanceof Canvas) ((Canvas) current).midpPostKey(CanvasEvent.KEY_PRESSED, e[3]);
                 break;
             case KEY_RELEASED:
-                if (current instanceof Canvas) ((Canvas) current).postKeyEvent(CanvasEvent.KEY_RELEASED, e[3]);
+                if (current instanceof Canvas) ((Canvas) current).midpPostKey(CanvasEvent.KEY_RELEASED, e[3]);
                 break;
             case KEY_REPEATED:
-                if (current instanceof Canvas) ((Canvas) current).postKeyEvent(CanvasEvent.KEY_REPEATED, e[3]);
+                if (current instanceof Canvas) ((Canvas) current).midpPostKey(CanvasEvent.KEY_REPEATED, e[3]);
                 break;
             case UI_COMMAND:
                 display.postCommand(e[3]);
@@ -161,10 +161,10 @@ public class MIDletRunner {
                 break;
             case APP_BACKGROUND:
                 display.setAppVisible(false);
-                if (callPauseApp && m != null && !paused) {
+                if (midpPauseApp && m != null && !paused) {
                     paused = true;
                     runLifecycle(new Lifecycle() {
-                        public void run(MIDlet target) { target.callPauseApp(); }
+                        public void run(MIDlet target) { target.midpPauseApp(); }
                     });
                 }
                 break;
@@ -199,7 +199,7 @@ public class MIDletRunner {
     private static void resume() {
         paused = false;
         runLifecycle(new Lifecycle() {
-            public void run(MIDlet target) throws Exception { target.callStartApp(); }
+            public void run(MIDlet target) throws Exception { target.midpStartApp(); }
         });
     }
 
@@ -224,7 +224,7 @@ public class MIDletRunner {
         Thread t = new Thread(new Runnable() {
             public void run() {
                 try {
-                    target.callDestroyApp(true);
+                    target.midpDestroyApp(true);
                 } catch (Throwable e) {
                     System.out.println("[MIDletRunner] destroyApp error: " + e);
                 }

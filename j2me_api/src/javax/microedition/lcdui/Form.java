@@ -28,7 +28,7 @@ public class Form extends Screen {
     public int append(Item item) {
         adopt(item);
         items.add(item);
-        contentChanged();
+        midpContentChanged();
         return items.size() - 1;
     }
 
@@ -46,26 +46,26 @@ public class Form extends Screen {
         checkIndex(index, items.size() + 1);
         adopt(item);
         items.add(index, item);
-        contentChanged();
+        midpContentChanged();
     }
 
     public void set(int index, Item item) {
         checkIndex(index, items.size());
         adopt(item);
         items.set(index, item).owner = null;
-        contentChanged();
+        midpContentChanged();
     }
 
     public void delete(int index) {
         checkIndex(index, items.size());
         items.remove(index).owner = null;
-        contentChanged();
+        midpContentChanged();
     }
 
     public void deleteAll() {
         for (int i = 0; i < items.size(); i++) items.get(i).owner = null;
         items.clear();
-        contentChanged();
+        midpContentChanged();
     }
 
     public int size() { return items.size(); }
@@ -77,27 +77,27 @@ public class Form extends Screen {
 
     public void setItemStateListener(ItemStateListener listener) { itemStateListener = listener; }
 
-    void notifyItemStateChanged(Item item) {
+    void midpNotifyItemState(Item item) {
         if (itemStateListener != null) itemStateListener.itemStateChanged(item);
     }
 
     @Override
-    void writeContent(ScreenWriter out) {
+    void midpWrite(ScreenWriter out) {
         out.field("kind", "form");
         out.beginArray("items");
-        for (int i = 0; i < items.size(); i++) items.get(i).writeTo(out);
+        for (int i = 0; i < items.size(); i++) items.get(i).midpWriteTo(out);
         out.endArray();
     }
 
     @Override
-    void onNativeValue(int index, String value) {
+    void midpNativeValue(int index, String value) {
         if (index < 0 || index >= items.size()) return;
         Item item = items.get(index);
-        if (item.onNativeValue(value)) notifyItemStateChanged(item);
+        if (item.midpNativeValue(value)) midpNotifyItemState(item);
     }
 
     @Override
-    void onItemCommand(int itemIndex, int commandIndex) {
-        if (itemIndex >= 0 && itemIndex < items.size()) items.get(itemIndex).fireItemCommand(commandIndex);
+    void midpItemCommand(int itemIndex, int commandIndex) {
+        if (itemIndex >= 0 && itemIndex < items.size()) items.get(itemIndex).midpFireItemCommand(commandIndex);
     }
 }

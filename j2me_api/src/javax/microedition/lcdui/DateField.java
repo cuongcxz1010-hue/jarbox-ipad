@@ -20,24 +20,24 @@ public class DateField extends Item {
     }
 
     public Date getDate() { return date; }
-    public void setDate(Date date) { this.date = date; changed(); }
+    public void setDate(Date date) { this.date = date; midpChanged(); }
     public int getInputMode() { return mode; }
 
     public void setInputMode(int mode) {
         if (mode < DATE || mode > DATE_TIME) throw new IllegalArgumentException();
         this.mode = mode;
-        changed();
+        midpChanged();
     }
 
     @Override
-    void writeContent(ScreenWriter out) {
+    void midpWrite(ScreenWriter out) {
         out.field("kind", "date");
         out.field("mode", mode);
         if (date != null) out.field("value", date.getTime());
     }
 
     @Override
-    boolean onNativeValue(String v) {
+    boolean midpNativeValue(String v) {
         try {
             date = new Date(Long.parseLong(v));
             return true;

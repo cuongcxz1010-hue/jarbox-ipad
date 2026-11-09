@@ -43,7 +43,7 @@ public class ExtendedImage extends com.siemens.mp.misc.NativeMem {
 	public void blitToScreen(int x, int y) {
 		Displayable current = Display.getDisplay(null).getCurrent();
 		if (current instanceof Canvas) {
-			((Canvas) current).flushBuffer(image, x, y);
+			((Canvas) current).midpFlush(image, x, y);
 		}
 	}
 

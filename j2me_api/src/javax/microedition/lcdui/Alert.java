@@ -24,9 +24,9 @@ public class Alert extends Screen {
     }
 
     public String getString() { return text; }
-    public void setString(String str) { text = str; contentChanged(); }
+    public void setString(String str) { text = str; midpContentChanged(); }
     public Image getImage() { return image; }
-    public void setImage(Image img) { image = img; contentChanged(); }
+    public void setImage(Image img) { image = img; midpContentChanged(); }
     public AlertType getType() { return type; }
     public void setType(AlertType type) { this.type = type; }
     public int getTimeout() { return timeout; }
@@ -38,7 +38,7 @@ public class Alert extends Screen {
 
     public int getDefaultTimeout() { return DEFAULT_TIMEOUT; }
     public Gauge getIndicator() { return indicator; }
-    public void setIndicator(Gauge indicator) { this.indicator = indicator; contentChanged(); }
+    public void setIndicator(Gauge indicator) { this.indicator = indicator; midpContentChanged(); }
 
     public void setCommandListener(CommandListener listener) {
         explicitListener = listener != null;
@@ -46,12 +46,12 @@ public class Alert extends Screen {
     }
 
     @Override
-    void writeContent(ScreenWriter out) {
+    void midpWrite(ScreenWriter out) {
         out.field("kind", "alert");
         out.field("text", text == null ? "" : text);
         out.image("image", image);
         // An alert with several commands stays until the user chooses one
-        out.field("timeout", getCommands().size() > 1 ? FOREVER : timeout);
+        out.field("timeout", midpCommands().size() > 1 ? FOREVER : timeout);
         out.field("alertType", type == AlertType.ERROR ? "error" : type == AlertType.WARNING ? "warning"
                 : type == AlertType.ALARM ? "alarm" : type == AlertType.CONFIRMATION ? "confirmation" : "info");
         if (indicator != null) {
@@ -63,9 +63,9 @@ public class Alert extends Screen {
     }
 
     @Override
-    public void fireCommandAction(int commandIndex) {
-        if (explicitListener && !getCommands().isEmpty()) {
-            super.fireCommandAction(commandIndex);
+    public void midpFireCommand(int commandIndex) {
+        if (explicitListener && !midpCommands().isEmpty()) {
+            super.midpFireCommand(commandIndex);
         } else {
             dismiss();
         }
@@ -73,8 +73,8 @@ public class Alert extends Screen {
 
     /** Timeout elapsed, or the implicit OK was pressed. */
     void dismiss() {
-        if (explicitListener && getCommandListener() != null) {
-            getCommandListener().commandAction(DISMISS_COMMAND, this);
+        if (explicitListener && midpCommandListener() != null) {
+            midpCommandListener().commandAction(DISMISS_COMMAND, this);
         } else {
             Display.dismissAlert(this);
         }

@@ -125,6 +125,7 @@ final class ScreenView: UIView, UITableViewDataSource, UITableViewDelegate, UITe
         tickerLabel.text = ticker
         tickerLabel.isHidden = ticker == nil
 
+        if kind != "textbox" { textView.resignFirstResponder() }
         scrollView.isHidden = kind != "form"
         table.isHidden = kind != "list"
         textView.isHidden = kind != "textbox"

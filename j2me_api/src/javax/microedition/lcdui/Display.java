@@ -101,8 +101,8 @@ public class Display {
         current = next;
         eventQueue.postEvent(new SimpleEvent() {
             public void process() {
-                if (previous != null && previous != next) previous.hide();
-                next.show();
+                if (previous != null && previous != next) previous.midpHide();
+                next.midpShow();
             }
         });
     }
@@ -130,12 +130,12 @@ public class Display {
 
         public void process() {
             target.refreshPending = false;
-            target.refresh();
+            target.midpRefresh();
         }
     }
 
     /** Coalesced: a burst of changes to one screen sends it to the platform once. */
-    static void contentChanged(Displayable d) {
+    static void midpContentChanged(Displayable d) {
         Display display = instance;
         if (display == null || display.current != d || d.refreshPending) return;
         d.refreshPending = true;
@@ -144,7 +144,7 @@ public class Display {
 
     static void refreshCurrent() {
         Display display = instance;
-        if (display != null && display.current != null) contentChanged(display.current);
+        if (display != null && display.current != null) midpContentChanged(display.current);
     }
 
     static boolean isVisible(Displayable d) {
@@ -166,8 +166,8 @@ public class Display {
             final boolean nowVisible = visible;
             eventQueue.postEvent(new SimpleEvent() {
                 public void process() {
-                    if (nowVisible) canvas.show();
-                    else canvas.hide();
+                    if (nowVisible) canvas.midpShow();
+                    else canvas.midpHide();
                 }
             });
         }
@@ -180,7 +180,7 @@ public class Display {
         final Displayable shown = current;
         if (shown != null) {
             eventQueue.postEvent(new SimpleEvent() {
-                public void process() { shown.fireCommandAction(commandId); }
+                public void process() { shown.midpFireCommand(commandId); }
             });
         }
     }
@@ -189,7 +189,7 @@ public class Display {
         final Displayable shown = current;
         if (shown instanceof Screen) {
             eventQueue.postEvent(new SimpleEvent() {
-                public void process() { ((Screen) shown).onListSelect(index); }
+                public void process() { ((Screen) shown).midpListSelect(index); }
             });
         }
     }
@@ -207,7 +207,7 @@ public class Display {
         final Displayable shown = current;
         if (shown instanceof Screen && value != null) {
             eventQueue.postEvent(new SimpleEvent() {
-                public void process() { ((Screen) shown).onNativeValue(index, value); }
+                public void process() { ((Screen) shown).midpNativeValue(index, value); }
             });
         }
     }
@@ -216,7 +216,7 @@ public class Display {
         final Displayable shown = current;
         if (shown instanceof Screen) {
             eventQueue.postEvent(new SimpleEvent() {
-                public void process() { ((Screen) shown).onItemCommand(itemIndex, commandIndex); }
+                public void process() { ((Screen) shown).midpItemCommand(itemIndex, commandIndex); }
             });
         }
     }
@@ -288,7 +288,7 @@ public class Display {
             Displayable shown = d.current;
             d.current = null;
             try {
-                shown.hide();
+                shown.midpHide();
             } catch (Throwable t) {
                 System.out.println("[Display] hide on shutdown: " + t);
             }

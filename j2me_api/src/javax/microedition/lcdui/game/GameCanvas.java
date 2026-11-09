@@ -65,23 +65,23 @@ public class GameCanvas extends Canvas {
 	}
 
 	@Override
-	public void doKeyPressed(int keyCode) {
-		if (!latch(keyCode)) super.doKeyPressed(keyCode);
+	public void midpKeyPressed(int keyCode) {
+		if (!latch(keyCode)) super.midpKeyPressed(keyCode);
 	}
 
 	@Override
-	public void doKeyRepeated(int keyCode) {
-		if (!latch(keyCode)) super.doKeyRepeated(keyCode);
+	public void midpKeyRepeated(int keyCode) {
+		if (!latch(keyCode)) super.midpKeyRepeated(keyCode);
 	}
 
 	@Override
-	public void doKeyReleased(int keyCode) {
+	public void midpKeyReleased(int keyCode) {
 		int bit = gameKeyBit(keyCode);
 		if (bit != 0) {
 			heldKeys &= ~bit;
 			if (suppressCommands) return;
 		}
-		super.doKeyReleased(keyCode);
+		super.midpKeyReleased(keyCode);
 	}
 
 	public int getKeyStates() {
@@ -99,13 +99,13 @@ public class GameCanvas extends Canvas {
 	}
 
 	public void flushGraphics(int x, int y, int width, int height) {
-		flushBuffer(image, x, y, width, height);
+		midpFlush(image, x, y, width, height);
 	}
 
 	@Override
-	public void doShowNotify() {
+	public void midpShowNotify() {
 		latchedKeys = 0;
 		heldKeys = 0;
-		super.doShowNotify();
+		super.midpShowNotify();
 	}
 }

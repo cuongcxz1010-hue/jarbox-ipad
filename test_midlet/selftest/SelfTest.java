@@ -848,6 +848,13 @@ public class SelfTest extends MIDlet {
 
         EventCanvas() { super(false); }
 
+        volatile boolean platformCalledGameMethod;
+
+        // Games often have methods with these names; the platform must never call them
+        void show() { platformCalledGameMethod = true; }
+        void hide() { platformCalledGameMethod = true; }
+        void refresh() { platformCalledGameMethod = true; }
+
         protected void showNotify() { shownCount++; }
         protected void sizeChanged(int w, int h) { sizeW = w; }
 
@@ -872,6 +879,7 @@ public class SelfTest extends MIDlet {
         check("showNotify before first paint", c.shownBeforePaint);
         check("sizeChanged called", c.sizeW, c.getWidth());
         check("isShown", c.isShown());
+        check("game methods named like platform ones are left alone", !c.platformCalledGameMethod);
         check("paint on event thread", c.paintThread != null && c.paintThread != Thread.currentThread());
 
         final Thread[] serial = new Thread[1];

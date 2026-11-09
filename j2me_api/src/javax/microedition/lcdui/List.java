@@ -23,19 +23,19 @@ public class List extends Screen implements Choice {
             model.append(stringElements[i], imageElements != null && i < imageElements.length ? imageElements[i] : null);
     }
 
-    public int append(String s, Image img) { int r = model.append(s, img); contentChanged(); return r; }
-    public void delete(int i) { model.delete(i); contentChanged(); }
-    public void deleteAll() { model.deleteAll(); contentChanged(); }
+    public int append(String s, Image img) { int r = model.append(s, img); midpContentChanged(); return r; }
+    public void delete(int i) { model.delete(i); midpContentChanged(); }
+    public void deleteAll() { model.deleteAll(); midpContentChanged(); }
     public int getSelectedIndex() { return model.getSelectedIndex(); }
     public String getString(int i) { return model.getString(i); }
     public Image getImage(int i) { return model.getImage(i); }
-    public void insert(int i, String s, Image img) { model.insert(i, s, img); contentChanged(); }
+    public void insert(int i, String s, Image img) { model.insert(i, s, img); midpContentChanged(); }
     public boolean isSelected(int i) { return model.isSelected(i); }
-    public void set(int i, String s, Image img) { model.set(i, s, img); contentChanged(); }
-    public void setSelectedIndex(int i, boolean s) { model.setSelected(i, s); contentChanged(); }
+    public void set(int i, String s, Image img) { model.set(i, s, img); midpContentChanged(); }
+    public void setSelectedIndex(int i, boolean s) { model.setSelected(i, s); midpContentChanged(); }
     public int size() { return model.size(); }
     public int getSelectedFlags(boolean[] a) { return model.getSelectedFlags(a); }
-    public void setSelectedFlags(boolean[] a) { model.setSelectedFlags(a); contentChanged(); }
+    public void setSelectedFlags(boolean[] a) { model.setSelectedFlags(a); midpContentChanged(); }
     public int getFitPolicy() { return model.getFitPolicy(); }
     public void setFitPolicy(int p) { model.setFitPolicy(p); }
     public Font getFont(int i) { return model.getFont(i); }
@@ -48,22 +48,22 @@ public class List extends Screen implements Choice {
     }
 
     @Override
-    void writeContent(ScreenWriter out) {
+    void midpWrite(ScreenWriter out) {
         out.field("kind", "list");
         out.field("mode", listType);
         model.write(out);
     }
 
     @Override
-    void onListSelect(int index) {
+    void midpListSelect(int index) {
         if (index < 0 || index >= model.size()) return;
         if (listType == MULTIPLE) {
             model.setSelected(index, !model.isSelected(index));
             return;
         }
         model.setSelected(index, true);
-        if (listType == IMPLICIT && selectCommand != null && getCommandListener() != null) {
-            Display.postEvent(CommandActionEvent.getInstance(getCommandListener(), selectCommand, this));
+        if (listType == IMPLICIT && selectCommand != null && midpCommandListener() != null) {
+            Display.postEvent(CommandActionEvent.getInstance(midpCommandListener(), selectCommand, this));
         }
     }
 }

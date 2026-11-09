@@ -31,9 +31,9 @@ public abstract class MIDlet {
     protected abstract void destroyApp(boolean unconditional) throws MIDletStateChangeException;
 
     // Lifecycle dispatch for the runner, which lives in another package
-    public final void callStartApp() throws MIDletStateChangeException { startApp(); }
-    public final void callPauseApp() { pauseApp(); }
-    public final void callDestroyApp(boolean unconditional) throws MIDletStateChangeException { destroyApp(unconditional); }
+    public final void midpStartApp() throws MIDletStateChangeException { startApp(); }
+    public final void midpPauseApp() { pauseApp(); }
+    public final void midpDestroyApp(boolean unconditional) throws MIDletStateChangeException { destroyApp(unconditional); }
 
     public boolean platformRequest(String url) throws ConnectionNotFoundException {
         if (url == null || url.length() == 0) return false;

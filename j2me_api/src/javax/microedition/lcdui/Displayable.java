@@ -20,7 +20,7 @@ public abstract class Displayable {
 
     public void setTitle(String title) {
         this.title = title;
-        contentChanged();
+        midpContentChanged();
     }
 
     public String getTitle() { return title; }
@@ -32,22 +32,22 @@ public abstract class Displayable {
         if (cmd == null) throw new NullPointerException();
         if (!commands.contains(cmd)) {
             commands.add(cmd);
-            contentChanged();
+            midpContentChanged();
         }
     }
 
     public void removeCommand(Command cmd) {
-        if (commands.remove(cmd)) contentChanged();
+        if (commands.remove(cmd)) midpContentChanged();
     }
 
     public void setCommandListener(CommandListener listener) { commandListener = listener; }
 
-    public ArrayList<Command> getCommands() { return commands; }
-    public CommandListener getCommandListener() { return commandListener; }
+    public ArrayList<Command> midpCommands() { return commands; }
+    public CommandListener midpCommandListener() { return commandListener; }
 
     public void setTicker(Ticker ticker) {
         this.ticker = ticker;
-        contentChanged();
+        midpContentChanged();
     }
 
     public Ticker getTicker() { return ticker; }
@@ -57,21 +57,21 @@ public abstract class Displayable {
     protected void sizeChanged(int w, int h) { }
 
     /** Tell the platform that what this screen shows has changed. */
-    void contentChanged() {
-        Display.contentChanged(this);
+    void midpContentChanged() {
+        Display.midpContentChanged(this);
     }
 
     /** Called on the event thread when this becomes the current screen. */
-    abstract void show();
+    abstract void midpShow();
 
     /** Called on the event thread when another screen replaces this one. */
-    abstract void hide();
+    abstract void midpHide();
 
     /** Send the current content to the platform (event thread). */
-    abstract void refresh();
+    abstract void midpRefresh();
 
-    /** Run the listener of the command with this position in getCommands(). */
-    public void fireCommandAction(int commandIndex) {
+    /** Run the listener of the command with this position in midpCommands(). */
+    public void midpFireCommand(int commandIndex) {
         if (commandListener != null && commandIndex >= 0 && commandIndex < commands.size()) {
             Display.postEvent(CommandActionEvent.getInstance(commandListener, commands.get(commandIndex), this));
         }

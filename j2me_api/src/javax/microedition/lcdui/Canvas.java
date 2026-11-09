@@ -157,7 +157,7 @@ public abstract class Canvas extends Displayable {
     }
 
     /** GameCanvas.flushGraphics: copy the off-screen image to the screen. */
-    public void flushBuffer(Image image, int x, int y, int w, int h) {
+    public void midpFlush(Image image, int x, int y, int w, int h) {
         limitFps();
         if (w <= 0 || h <= 0 || x + w < 0 || y + h < 0 || x >= width || y >= height) return;
         synchronized (bufferLock) {
@@ -169,7 +169,7 @@ public abstract class Canvas extends Displayable {
     }
 
     /** Siemens ExtendedImage: draw an image at a position and show it. */
-    public void flushBuffer(Image image, int x, int y) {
+    public void midpFlush(Image image, int x, int y) {
         limitFps();
         synchronized (bufferLock) {
             if (nativeContext == 0 || !visible) return;
@@ -184,7 +184,7 @@ public abstract class Canvas extends Displayable {
     // ------------------------------------------------------------
 
     @Override
-    void show() {
+    void midpShow() {
         synchronized (bufferLock) {
             if (nativeContext == 0) {
                 nativeContext = NativeBridge.createContext(width, height);
@@ -192,14 +192,14 @@ public abstract class Canvas extends Displayable {
             }
         }
         visible = true;
-        refresh();
+        midpRefresh();
         NativeBridge.showCanvas();
         if (!sizeChangedCalled) {
             sizeChangedCalled = true;
             callSizeChanged();
         }
         try {
-            doShowNotify();
+            midpShowNotify();
         } catch (Throwable t) {
             System.out.println("[Canvas] Error in showNotify(): " + t);
         }
@@ -208,18 +208,18 @@ public abstract class Canvas extends Displayable {
 
     private void callSizeChanged() {
         try {
-            doSizeChanged(width, height);
+            midpSizeChanged(width, height);
         } catch (Throwable t) {
             System.out.println("[Canvas] Error in sizeChanged(): " + t);
         }
     }
 
     @Override
-    void hide() {
+    void midpHide() {
         if (!visible) return;
         visible = false;
         try {
-            doHideNotify();
+            midpHideNotify();
         } catch (Throwable t) {
             System.out.println("[Canvas] Error in hideNotify(): " + t);
         }
@@ -227,12 +227,12 @@ public abstract class Canvas extends Displayable {
 
     /** Publish the labels of the commands of this canvas (shown in the app menu). */
     @Override
-    void refresh() {
+    void midpRefresh() {
         if (!visible) return;
         ScreenWriter out = new ScreenWriter();
         out.beginObject();
         out.field("kind", "canvas");
-        out.commands("commands", getCommands());
+        out.commands("commands", midpCommands());
         out.endObject();
         NativeBridge.setCanvasCommands(out.toString());
     }
@@ -241,7 +241,7 @@ public abstract class Canvas extends Displayable {
 
     public void setFullScreenMode(boolean mode) { fullScreen = mode; }
 
-    public boolean isFullScreen() { return fullScreen; }
+    public boolean midpIsFullScreen() { return fullScreen; }
 
     // ------------------------------------------------------------
     // Capabilities
@@ -266,24 +266,24 @@ public abstract class Canvas extends Displayable {
     protected void hideNotify() { }
 
     /** Native key code → event queue. */
-    public void postKeyEvent(int type, int keyCode) {
+    public void midpPostKey(int type, int keyCode) {
         Display.postEvent(CanvasEvent.getInstance(this, type, KeyMapper.convertKeyCode(keyCode)));
     }
 
-    public void postPointerEvent(int type, int x, int y) {
+    public void midpPostPointer(int type, int x, int y) {
         Display.postEvent(CanvasEvent.getInstance(this, type, 0, (float) x, (float) y));
     }
 
     // Called by CanvasEvent on the event thread; GameCanvas overrides the key methods.
-    public void doKeyPressed(int keyCode) { keyPressed(keyCode); }
-    public void doKeyReleased(int keyCode) { keyReleased(keyCode); }
-    public void doKeyRepeated(int keyCode) { keyRepeated(keyCode); }
-    public void doPointerPressed(int x, int y) { pointerPressed(x, y); }
-    public void doPointerDragged(int x, int y) { pointerDragged(x, y); }
-    public void doPointerReleased(int x, int y) { pointerReleased(x, y); }
-    public void doShowNotify() { showNotify(); }
-    public void doHideNotify() { hideNotify(); }
-    public void doSizeChanged(int w, int h) { sizeChanged(w, h); }
+    public void midpKeyPressed(int keyCode) { keyPressed(keyCode); }
+    public void midpKeyReleased(int keyCode) { keyReleased(keyCode); }
+    public void midpKeyRepeated(int keyCode) { keyRepeated(keyCode); }
+    public void midpPointerPressed(int x, int y) { pointerPressed(x, y); }
+    public void midpPointerDragged(int x, int y) { pointerDragged(x, y); }
+    public void midpPointerReleased(int x, int y) { pointerReleased(x, y); }
+    public void midpShowNotify() { showNotify(); }
+    public void midpHideNotify() { hideNotify(); }
+    public void midpSizeChanged(int w, int h) { sizeChanged(w, h); }
 
     public int getGameAction(int keyCode) {
         int action = KeyMapper.getGameAction(keyCode);

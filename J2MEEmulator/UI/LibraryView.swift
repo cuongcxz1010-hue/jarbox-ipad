@@ -97,6 +97,7 @@ struct LibraryView: View {
     @ObservedObject var model: LibraryModel
     let actions: LibraryActions
     @State private var query = ""
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     private var appVersion: String {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -220,69 +221,94 @@ struct LibraryView: View {
         return parts.joined(separator: " · ")
     }
 
+    @ViewBuilder
     private func row(_ game: GameEntry) -> some View {
-        HStack(spacing: 12) {
-            Button {
-                actions.play(game)
-            } label: {
-                HStack(spacing: 14) {
-                    Image(uiImage: game.icon)
-                        .resizable()
-                        .interpolation(.none)
-                        .frame(width: 56, height: 56)
-                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1))
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(game.name)
-                            .font(.headline)
-                            .lineLimit(1)
-                        Text(subtitle(game))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        Text(statusLine(game))
-                            .font(.caption)
-                            .foregroundStyle(game.problem == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.red))
-                            .lineLimit(1)
-                    }
+        if sizeClass == .compact {
+            VStack(alignment: .leading, spacing: 6) {
+                gameInfo(game)
+                HStack(spacing: 18) {
                     Spacer(minLength: 0)
-                    Image(systemName: "play.circle.fill")
-                        .font(.system(size: 30))
-                        .foregroundStyle(.tint)
+                    actionButtons(game)
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Chơi \(game.name)")
-
-            Button { actions.settings(game) } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 22))
-                    .frame(width: 40, height: 44)
+            .padding(.vertical, 4)
+        } else {
+            HStack(spacing: 12) {
+                gameInfo(game)
+                actionButtons(game)
             }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Cài đặt \(game.name)")
-
-            Button(role: .destructive) { actions.delete(game) } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 20))
-                    .frame(width: 36, height: 44)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Xóa \(game.name)")
-
-            Menu {
-                menuItems(game)
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 24))
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Tùy chọn của \(game.name)")
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
+    }
+
+    private func gameInfo(_ game: GameEntry) -> some View {
+        Button {
+            actions.play(game)
+        } label: {
+            HStack(spacing: 14) {
+                Image(uiImage: game.icon)
+                    .resizable()
+                    .interpolation(.none)
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(game.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text(subtitle(game))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(statusLine(game))
+                        .font(.caption)
+                        .foregroundStyle(game.problem == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.red))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Chơi \(game.name)")
+    }
+
+    @ViewBuilder
+    private func actionButtons(_ game: GameEntry) -> some View {
+        Button { actions.play(game) } label: {
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 30))
+                .frame(width: 40, height: 44)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Chơi \(game.name)")
+
+        Button { actions.settings(game) } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 22))
+                .frame(width: 40, height: 44)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Cài đặt \(game.name)")
+
+        Button(role: .destructive) { actions.delete(game) } label: {
+            Image(systemName: "trash")
+                .font(.system(size: 20))
+                .frame(width: 36, height: 44)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Xóa \(game.name)")
+
+        Menu {
+            menuItems(game)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 24))
+                .frame(width: 40, height: 44)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Tùy chọn của \(game.name)")
     }
 
     @ViewBuilder
