@@ -114,7 +114,7 @@ def main(rt, api, output):
             f.write(old_code_class())
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("META-INF/MANIFEST.MF",
-                       "Manifest-Version: 1.0\r\nMIDlet-Name: JarBox SelfTest\r\nMIDlet-Version: 1.0\r\n"
+                       "Manifest-Version: 1.0\r\nMIDlet-Name: KUONTPL SelfTest\r\nMIDlet-Version: 1.0\r\n"
                        "MIDlet-Vendor: JarBox\r\nMIDlet-1: SelfTest,,SelfTest\r\nSelfTest-Key: SelfValue\r\n"
                        "MicroEdition-Profile: MIDP-2.0\r\nMicroEdition-Configuration: CLDC-1.1\r\n\r\n")
             z.writestr("test.png", test_png())

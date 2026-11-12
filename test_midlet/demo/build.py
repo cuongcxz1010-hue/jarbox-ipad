@@ -19,7 +19,7 @@ def build(rt, api, source, main, output):
                               stderr=subprocess.DEVNULL)
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("META-INF/MANIFEST.MF",
-                       "Manifest-Version: 1.0\r\nMIDlet-Name: JarBox %s\r\nMIDlet-Version: 1.0\r\n"
+                       "Manifest-Version: 1.0\r\nMIDlet-Name: KUONTPL %s\r\nMIDlet-Version: 1.0\r\n"
                        "MIDlet-Vendor: JarBox\r\nMIDlet-1: %s,,%s\r\n\r\n" % (main, main, main))
             for root, _, names in os.walk(tmp):
                 for n in names:
