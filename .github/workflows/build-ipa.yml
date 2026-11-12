@@ -1,11 +1,11 @@
-name: Build iPad IPA
-run-name: Build iPad IPA v${{ inputs.version || 'auto' }}
+name: Build KUONTPL IPA
+run-name: Build KUONTPL IPA v${{ inputs.version || 'auto' }}
 
 # Builds an UNSIGNED .ipa on a macOS runner. Install it on the iPad with
 # Sideloadly (Windows), which signs it with your own Apple ID.
 #
-# Started on demand: by tools/JarBoxBuilder.ps1 (the "JarBox Builder" app),
-# or from the GitHub website: Actions -> Build iPad IPA -> Run workflow.
+# Started on demand: by tools/JarBoxBuilder.ps1 (the "KUONTPL Builder" app),
+# or from the GitHub website: Actions -> Build KUONTPL IPA -> Run workflow.
 
 on:
   workflow_dispatch:
@@ -93,9 +93,9 @@ jobs:
       - name: Bundle runtime jars and package IPA
         run: |
           set -e
-          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/JarBox.app"
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/KUONTPL.app"
           if [ ! -d "$APP" ]; then
-            echo "JarBox.app not found. App bundles produced:"
+            echo "KUONTPL.app not found. App bundles produced:"
             find "$RUNNER_TEMP/DerivedData" -name '*.app' -type d -print
             exit 1
           fi
@@ -115,10 +115,10 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily' "$PL" | grep -q '^ *2$' \
             || { echo "ERROR: app is not built for iPad"; exit 1; }
 
-          IPA="JarBox-iPad-v$VERSION.ipa"
+          IPA="KUONTPL-v$VERSION.ipa"
           STAGE="$RUNNER_TEMP/ipa"
           mkdir -p "$STAGE/Payload"
-          ditto "$APP" "$STAGE/Payload/JarBox.app"
+          ditto "$APP" "$STAGE/Payload/KUONTPL.app"
           (cd "$STAGE" && zip -qry "$GITHUB_WORKSPACE/$IPA" Payload)
           ls -lh "$IPA"
           echo "IPA_NAME=$IPA" >> "$GITHUB_ENV"
@@ -126,7 +126,7 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v6
         with:
-          name: JarBox-iPad-v${{ env.VERSION }}
+          name: KUONTPL-v${{ env.VERSION }}
           path: ${{ env.IPA_NAME }}
           if-no-files-found: error
           retention-days: 90

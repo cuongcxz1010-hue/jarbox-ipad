@@ -1,15 +1,15 @@
 ﻿#requires -Version 5.1
 <#
-    JarBox Builder - build file .ipa cho iPad chỉ với 1 nút bấm.
+    KUONTPL Builder - build file .ipa cho iPad chỉ với 1 nút bấm.
 
-    Cách mở : bấm đúp shortcut "JarBox Builder" trên Desktop,
-              hoặc file "JarBox Builder.bat" trong thư mục dự án.
+    Cách mở : bấm đúp shortcut "KUONTPL Builder" trên Desktop,
+              hoặc file "KUONTPL Builder.bat" trong thư mục dự án.
 
     Cách hoạt động:
       1. (nếu có) lưu thay đổi code và đẩy lên GitHub
       2. yêu cầu GitHub Actions build với số phiên bản bạn nhập
       3. theo dõi tiến trình build trên máy Mac của GitHub
-      4. tải file JarBox-iPad-v<phiên bản>.ipa về thư mục build_output
+      4. tải file KUONTPL-v<phiên bản>.ipa về thư mục build_output
 
     Dòng lệnh (không mở cửa sổ):
       powershell -ExecutionPolicy Bypass -File tools\JarBoxBuilder.ps1 -SelfTest
@@ -95,7 +95,7 @@ function Save-Ipa([string]$runId, [string]$artifactName) {
     if ($artifactName) {
         $a2 = @('run', 'download', $runId, '-R', $sync.Repo, '-n', $artifactName, '-D', $tmp)
     } else {
-        $a2 = @('run', 'download', $runId, '-R', $sync.Repo, '-p', 'JarBox-iPad*', '-D', $tmp)
+        $a2 = @('run', 'download', $runId, '-R', $sync.Repo, '-p', 'KUONTPL-v*', '-p', 'JarBox-iPad*', '-D', $tmp)
     }
     $r = Gh $a2
     if ($r.Code -ne 0) { throw ('Tải file thất bại: ' + $r.Err) }
@@ -138,7 +138,7 @@ try {
 
         $runId = $null
         if (($r.Out + "`n" + $r.Err) -match '/actions/runs/(\d+)') { $runId = $Matches[1] }
-        $title = 'Build iPad IPA v' + $ver
+        $title = 'Build KUONTPL IPA v' + $ver
         $tries = 0
         while (-not $runId -and $tries -lt 40) {
             Start-Sleep -Seconds 3
@@ -197,7 +197,7 @@ try {
         if ($info.conclusion -eq 'success') {
             $sync.Status = 'Build thành công, đang tải file .ipa về máy...'
             Log 'Build thành công! Đang tải file .ipa về máy...'
-            $dest = Save-Ipa $runId ('JarBox-iPad-v' + $ver)
+            $dest = Save-Ipa $runId ('KUONTPL-v' + $ver)
             $sync.IpaPath = $dest
             $sync.Success = $true
             Log ('Đã lưu: ' + $dest)
@@ -273,9 +273,9 @@ function ConvertTo-FullVersion([string]$v) {
 function Get-SuggestedVersion {
     $best = $null
     if (Test-Path $OutDir) {
-        foreach ($f in Get-ChildItem $OutDir -Filter 'JarBox-iPad-v*.ipa') {
-            if ($f.Name -match '^JarBox-iPad-v(\d+(\.\d+){0,2})\.ipa$') {
-                $v = ConvertTo-FullVersion $Matches[1]
+        foreach ($f in Get-ChildItem $OutDir -Filter '*-v*.ipa') {
+            if ($f.Name -match '^(KUONTPL|JarBox-iPad)-v(\d+(\.\d+){0,2})\.ipa$') {
+                $v = ConvertTo-FullVersion $Matches[2]
                 if (-not $best -or $v -gt $best) { $best = $v }
             }
         }
@@ -403,7 +403,7 @@ Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'JarBox iPad Builder'
+$form.Text = 'KUONTPL Builder'
 $form.StartPosition = 'CenterScreen'
 $form.Size = New-Object System.Drawing.Size(820, 620)
 $form.MinimumSize = New-Object System.Drawing.Size(640, 480)
@@ -448,7 +448,7 @@ function New-Button([string]$text) {
 
 # Header
 $lblTitle = New-Object System.Windows.Forms.Label
-$lblTitle.Text = 'JarBox iPad Builder'
+$lblTitle.Text = 'KUONTPL Builder'
 $lblTitle.Font = New-Object System.Drawing.Font('Segoe UI', 16, [System.Drawing.FontStyle]::Bold)
 $lblTitle.AutoSize = $true
 $root.Controls.Add($lblTitle)
@@ -531,7 +531,7 @@ function Set-Busy([bool]$busy, [bool]$canCancel = $false) {
 function Assert-Ready {
     $problem = Get-Problem
     if ($problem) {
-        [void][System.Windows.Forms.MessageBox]::Show($problem, 'JarBox Builder', 'OK', 'Warning')
+        [void][System.Windows.Forms.MessageBox]::Show($problem, 'KUONTPL Builder', 'OK', 'Warning')
         $lblStatus.Text = $problem
         return $false
     }
@@ -557,7 +557,7 @@ $timer.Add_Tick({
         $lblStatus.Text = 'Xong! Đã có file ' + $name
         $txtVer.Text = Get-SuggestedVersion
         $ans = [System.Windows.Forms.MessageBox]::Show(
-            "Đã có file:`n$($s.IpaPath)`n`nMở thư mục chứa file?", 'JarBox Builder', 'YesNo', 'Information')
+            "Đã có file:`n$($s.IpaPath)`n`nMở thư mục chứa file?", 'KUONTPL Builder', 'YesNo', 'Information')
         if ($ans -eq 'Yes') { Show-InFolder $s.IpaPath }
     } else {
         $lblStatus.Text = 'Không thành công - xem nhật ký bên dưới.'
@@ -567,7 +567,7 @@ $timer.Add_Tick({
 $btnBuild.Add_Click({
     $ver = $txtVer.Text.Trim().TrimStart('v', 'V')
     if ($ver -notmatch '^\d+(\.\d+){0,2}$') {
-        [void][System.Windows.Forms.MessageBox]::Show('Phiên bản không hợp lệ. Ví dụ: 0.1.2', 'JarBox Builder', 'OK', 'Warning')
+        [void][System.Windows.Forms.MessageBox]::Show('Phiên bản không hợp lệ. Ví dụ: 0.1.2', 'KUONTPL Builder', 'OK', 'Warning')
         return
     }
     if (-not (Assert-Ready)) { return }
@@ -580,7 +580,7 @@ $btnBuild.Add_Click({
             "Đang có bản build $label chạy trên GitHub.`n`n" +
             "Yes  = Theo dõi bản đó và tự tải về khi xong`n" +
             "No   = Vẫn build bản v$ver (sẽ chạy sau khi bản kia xong)`n" +
-            "Cancel = Hủy", 'JarBox Builder', 'YesNoCancel', 'Question')
+            "Cancel = Hủy", 'KUONTPL Builder', 'YesNoCancel', 'Question')
         if ($a -eq 'Cancel') { return }
         if ($a -eq 'Yes' -and $active.Version) {
             $txtLog.Clear()
@@ -592,9 +592,9 @@ $btnBuild.Add_Click({
         }
     }
 
-    $existing = Join-Path $OutDir "JarBox-iPad-v$ver.ipa"
+    $existing = Join-Path $OutDir "KUONTPL-v$ver.ipa"
     if (Test-Path $existing) {
-        $a = [System.Windows.Forms.MessageBox]::Show("Đã có bản v$ver trong máy. Build lại và ghi đè?", 'JarBox Builder', 'YesNo', 'Question')
+        $a = [System.Windows.Forms.MessageBox]::Show("Đã có bản v$ver trong máy. Build lại và ghi đè?", 'KUONTPL Builder', 'YesNo', 'Question')
         if ($a -ne 'Yes') { return }
     }
 
@@ -605,13 +605,13 @@ $btnBuild.Add_Click({
             "Có thay đổi trong thư mục dự án chưa được lưu (commit):`n`n$files`n`n" +
             "Yes  = Lưu lại và đưa vào bản build này`n" +
             "No   = Bỏ qua, build từ code đã có trên GitHub`n" +
-            "Cancel = Hủy", 'JarBox Builder', 'YesNoCancel', 'Question')
+            "Cancel = Hủy", 'KUONTPL Builder', 'YesNoCancel', 'Question')
         if ($a -eq 'Cancel') { return }
         if ($a -eq 'Yes') {
             $r1 = Invoke-Exe $GitExe @('add', '-A') $RepoDir
             $r2 = Invoke-Exe $GitExe @('commit', '-m', "Cập nhật cho bản v$ver") $RepoDir
             if ($r1.Code -ne 0 -or $r2.Code -ne 0) {
-                [void][System.Windows.Forms.MessageBox]::Show("Không lưu được thay đổi:`n$($r1.Err)`n$($r2.Err)", 'JarBox Builder', 'OK', 'Error')
+                [void][System.Windows.Forms.MessageBox]::Show("Không lưu được thay đổi:`n$($r1.Err)`n$($r2.Err)", 'KUONTPL Builder', 'OK', 'Error')
                 return
             }
         }
@@ -650,7 +650,7 @@ $btnSide.Add_Click({
     $sl = Find-Sideloadly
     if ($sl) { Start-Process $sl; return }
     $a = [System.Windows.Forms.MessageBox]::Show(
-        "Chưa tìm thấy Sideloadly trên máy.`nMở trang sideloadly.io để tải về?", 'JarBox Builder', 'YesNo', 'Question')
+        "Chưa tìm thấy Sideloadly trên máy.`nMở trang sideloadly.io để tải về?", 'KUONTPL Builder', 'YesNo', 'Question')
     if ($a -eq 'Yes') { Start-Process 'https://sideloadly.io' }
 })
 
@@ -658,7 +658,7 @@ $btnWeb.Add_Click({ if ($Repo) { Start-Process "https://github.com/$Repo/actions
 
 $btnLogin.Add_Click({
     if (-not $GhExe) {
-        [void][System.Windows.Forms.MessageBox]::Show('Chưa có GitHub CLI (gh.exe).', 'JarBox Builder', 'OK', 'Warning')
+        [void][System.Windows.Forms.MessageBox]::Show('Chưa có GitHub CLI (gh.exe).', 'KUONTPL Builder', 'OK', 'Warning')
         return
     }
     $cmd = "& '$GhExe' auth login --hostname github.com --git-protocol https --web --scopes workflow; " +
@@ -684,7 +684,7 @@ $form.Add_FormClosing({
     if ($script:busy) {
         $a = [System.Windows.Forms.MessageBox]::Show(
             "Đang build. Nếu đóng, GitHub vẫn build tiếp nhưng file sẽ không tự tải về`n(bấm ""Tải bản build mới nhất"" lần sau để lấy).`n`nĐóng cửa sổ?",
-            'JarBox Builder', 'YesNo', 'Warning')
+            'KUONTPL Builder', 'YesNo', 'Warning')
         if ($a -ne 'Yes') { $e.Cancel = $true }
     }
 })

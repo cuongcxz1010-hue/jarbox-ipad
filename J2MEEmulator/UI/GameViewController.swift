@@ -9,7 +9,7 @@
 //    and turn translucent only where they cover the game);
 //  • one overlay handles every key (multi-touch, slide between keys, hold to
 //    repeat) — see VirtualControls.swift;
-//  • the ≡ key opens the JarBox menu: typing, keys (layout, colours, size,
+//  • the ≡ key opens the KUONTPL menu: typing, keys (layout, colours, size,
 //    editor, profiles), display, idle tools, screenshot, settings, help.
 //
 
@@ -32,7 +32,7 @@ class GameViewController: UIViewController {
     private let screenView = ScreenView()
     private(set) var placeholderIconView: UIImageView?
 
-    // On-screen keys (one overlay for all of them) and the JarBox menu key
+    // On-screen keys (one overlay for all of them) and the KUONTPL menu key
     private let keyboard = VirtualKeyboardView()
     private var menuButton: UIButton { keyboard.menuButton }
     private let autoPressBadge = UIButton(type: .system)
@@ -786,7 +786,7 @@ class GameViewController: UIViewController {
     private func editorToggleHidden(_ id: String) {
         guard id != "menu" else {
             let alert = UIAlertController(title: "Không ẩn được phím Menu",
-                                          message: "Phím ≡ là đường vào menu của JarBox nên luôn hiện. Bạn có thể kéo nó sang chỗ khác.",
+                                          message: "Phím ≡ là đường vào menu của KUONTPL nên luôn hiện. Bạn có thể kéo nó sang chỗ khác.",
                                           preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default))
             present(alert, animated: true)
@@ -1006,7 +1006,7 @@ class GameViewController: UIViewController {
     • Không cần nhấc tay: trượt ngón từ phím này sang phím kia là đổi hướng ngay. Bấm được nhiều phím cùng lúc (vừa đi vừa đánh). Giữ phím để bấm liên tục.
     • L / R = phím mềm trái / phải (bấm theo chữ game hiện ở 2 góc dưới: Menu, OK, Quay lại…).
     • 0–9, *, # như bàn phím điện thoại.
-    • ≡ = menu của JarBox: gõ chữ, kiểu bàn phím, kéo thả / đổi cỡ phím, màu phím, xoay màn hình, treo game, cài đặt, thoát.
+    • ≡ = menu của KUONTPL: gõ chữ, kiểu bàn phím, kéo thả / đổi cỡ phím, màu phím, xoay màn hình, treo game, cài đặt, thoát.
     • Ô tài khoản / mật khẩu / chat: chạm vào ô là bàn phím iPad hiện ra.
     • Chạm thẳng vào hình game cũng được (game cảm ứng).
     """

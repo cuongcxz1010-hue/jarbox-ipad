@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "8A8184DD2F6C9DD500E5A952"
-               BuildableName = "JarBox.app"
+               BuildableName = "KUONTPL.app"
                BlueprintName = "J2MEEmulator"
                ReferencedContainer = "container:J2MEEmulator.xcodeproj">
             </BuildableReference>
@@ -46,7 +46,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8A8184DD2F6C9DD500E5A952"
-            BuildableName = "JarBox.app"
+            BuildableName = "KUONTPL.app"
             BlueprintName = "J2MEEmulator"
             ReferencedContainer = "container:J2MEEmulator.xcodeproj">
          </BuildableReference>
@@ -63,7 +63,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8A8184DD2F6C9DD500E5A952"
-            BuildableName = "JarBox.app"
+            BuildableName = "KUONTPL.app"
             BlueprintName = "J2MEEmulator"
             ReferencedContainer = "container:J2MEEmulator.xcodeproj">
          </BuildableReference>

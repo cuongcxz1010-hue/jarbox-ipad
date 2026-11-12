@@ -1,6 +1,6 @@
-# Kiến trúc JarBox
+# Kiến trúc KUONTPL
 
-JarBox chạy game Java ME (.jar, .jad) trên iPhone và iPad bằng một máy ảo Java thật. Tài liệu này mô tả các lớp của hệ thống, phần nào tái sử dụng từ dự án khác và cách các thành phần gọi nhau.
+KUONTPL chạy game Java ME (.jar, .jad) trên iPhone và iPad bằng một máy ảo Java thật. Tài liệu này mô tả các lớp của hệ thống, phần nào tái sử dụng từ dự án khác và cách các thành phần gọi nhau.
 
 ## Sơ đồ tổng thể
 
@@ -72,7 +72,7 @@ JarBox chạy game Java ME (.jar, .jad) trên iPhone và iPad bằng một máy 
 
 ## Khác biệt so với iOS và Android
 
-| Vấn đề | J2ME Loader (Android) | JarBox (iOS) |
+| Vấn đề | J2ME Loader (Android) | KUONTPL (iOS) |
 |---|---|---|
 | Chạy mã Java | Chuyển sang DEX, chạy trên ART | Thông dịch bytecode, vì iOS không cho JIT |
 | Vẽ | Android Canvas, OpenGL | Bộ vẽ phần mềm riêng |

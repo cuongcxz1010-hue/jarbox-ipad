@@ -115,7 +115,7 @@ struct LibraryView: View {
                     gameList
                 }
             }
-            .navigationTitle("JarBox")
+            .navigationTitle("KUONTPL")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
@@ -132,7 +132,7 @@ struct LibraryView: View {
                             Label("Gửi nhật ký lỗi", systemImage: "doc.text.magnifyingglass")
                         }
                         Divider()
-                        Text("JarBox \(appVersion)")
+                        Text("KUONTPL \(appVersion)")
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -185,7 +185,7 @@ struct LibraryView: View {
                 }
             } footer: {
                 if !games.isEmpty {
-                    Text("Chạm vào game để chơi. Bấm ⋯ để chỉnh độ phân giải, xoay màn hình, phím… Thêm game: nút + ở góc trên, hoặc mở file .jar từ ứng dụng khác → Chia sẻ → JarBox.")
+                    Text("Chạm vào game để chơi. Bấm ⋯ để chỉnh độ phân giải, xoay màn hình, phím… Thêm game: nút + ở góc trên, hoặc mở file .jar từ ứng dụng khác → Chia sẻ → KUONTPL.")
                 }
             }
         }

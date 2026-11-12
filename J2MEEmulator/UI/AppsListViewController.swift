@@ -111,7 +111,7 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
         pendingResumeName = nil
         let alert = UIAlertController(
             title: "Tiếp tục chơi?",
-            message: "iOS đã đóng JarBox khi \"\(game.name)\" đang chạy nền.\n\nMở lại game? Game sẽ khởi động lại và dùng dữ liệu game đã tự lưu.",
+            message: "iOS đã đóng KUONTPL khi \"\(game.name)\" đang chạy nền.\n\nMở lại game? Game sẽ khởi động lại và dùng dữ liệu game đã tự lưu.",
             preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Không", style: .cancel))
         alert.addAction(UIAlertAction(title: "Mở lại", style: .default) { [weak self] _ in
@@ -133,12 +133,12 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
         let alert = UIAlertController(title: "Hướng dẫn", message: """
             Thêm game:
             • Bấm + rồi chọn file .jar (chọn cùng lúc file .jad nếu game có).
-            • Hoặc trong ứng dụng Tệp / Zalo / Safari: mở file .jar → Chia sẻ → JarBox.
-            • Hoặc chép file .jar vào Tệp → Trên iPad → JarBox.
+            • Hoặc trong ứng dụng Tệp / Zalo / Safari: mở file .jar → Chia sẻ → KUONTPL.
+            • Hoặc chép file .jar vào Tệp → Trên iPad → KUONTPL.
 
             Chơi:
             • Chạm vào game để chơi. Bấm ⋯ để chỉnh độ phân giải, xoay màn hình, kiểu phím, treo game.
-            • Trong game, phím ≡ mở menu của JarBox (gõ chữ, kéo thả phím, chụp màn hình, thoát…).
+            • Trong game, phím ≡ mở menu của KUONTPL (gõ chữ, kéo thả phím, chụp màn hình, thoát…).
 
             Game chạy sai hình: thử độ phân giải 240×320, hoặc độ phân giải ngang (320×240, 640×360) với game hỗ trợ màn ngang.
             """, preferredStyle: .alert)
@@ -173,15 +173,15 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
         loadViewIfNeeded()
         let dir = Self.gamesDirectory
         DispatchQueue.global(qos: .userInitiated).async {
-            let backups = urls.filter { $0.lastPathComponent.lowercased().hasSuffix(".jarbox.zip") }
-            let others = urls.filter { !$0.lastPathComponent.lowercased().hasSuffix(".jarbox.zip") }
+            let backups = urls.filter { GameStorage.isBackupFile($0) }
+            let others = urls.filter { !GameStorage.isBackupFile($0) }
             var result = Self.importJARs(from: others, into: dir)
             for url in backups {
                 let accessing = url.startAccessingSecurityScopedResource()
                 if let name = GameStorage.importBackup(from: url, gamesDirectory: dir) {
                     result.imported.append(name + " (khôi phục từ bản sao lưu)")
                 } else {
-                    result.rejected.append(url.lastPathComponent + ": không phải bản sao lưu của JarBox")
+                    result.rejected.append(url.lastPathComponent + ": không phải bản sao lưu của KUONTPL")
                 }
                 if accessing { url.stopAccessingSecurityScopedResource() }
             }
@@ -383,7 +383,7 @@ class AppsListViewController: UIViewController, UIDocumentPickerDelegate {
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
 
-            // .jar files copied straight into "On My iPad › JarBox" → move into games/
+            // .jar files copied straight into "On My iPad › KUONTPL" → move into games/
             if let rootFiles = try? fm.contentsOfDirectory(atPath: docsDir) {
                 for file in rootFiles where file.lowercased().hasSuffix(".jar") {
                     let dst = gamesDir + "/" + String(file.dropLast(4)) + ".jar"

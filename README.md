@@ -1,9 +1,11 @@
 <p align="center">
     <img src="Assets/icon.png" width="170" />
 </p>
-<h1 align="center">JarBox</h1>
+<h1 align="center">KUONTPL</h1>
 
-JarBox is a J2ME (Java ME) emulator for iOS that runs MIDP 2.0 / CLDC 1.1 games and applications on iPhone and iPad.
+KUONTPL is a J2ME (Java ME) emulator for iOS that runs MIDP 2.0 / CLDC 1.1 games and applications on iPhone and iPad.
+
+Forked from [J2MEStudio](https://github.com/a526437928/J2MEStudio), which is based on JarBox.
 
 Built on top of [miniJVM](https://github.com/niclet/mini_jvm) (a lightweight JVM written in C) with the J2ME API layer ported from [J2ME-Loader](https://github.com/niclet/J2ME-Loader) (Android).
 

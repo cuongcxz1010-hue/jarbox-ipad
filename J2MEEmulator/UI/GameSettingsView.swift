@@ -404,7 +404,7 @@ struct GameSettingsView: View {
             Text("""
             Khi game đang mở: chạy bình thường, có thể bật "Treo máy ổn định" trong Menu ≡ (màn tối, giảm FPS).
             Khi chuyển ứng dụng hoặc khóa màn hình: iOS chỉ cho chạy thêm khoảng 30 giây rồi tạm dừng ứng dụng; máy chủ sẽ ngắt kết nối sau đó.
-            JarBox không dùng âm thanh giả hay GPS giả để lách giới hạn này. Khi quay lại, game tự kết nối lại nếu game có hỗ trợ. Nếu iOS đã đóng app, game mở lại từ dữ liệu đã lưu.
+            KUONTPL không dùng âm thanh giả hay GPS giả để lách giới hạn này. Khi quay lại, game tự kết nối lại nếu game có hỗ trợ. Nếu iOS đã đóng app, game mở lại từ dữ liệu đã lưu.
             """)
         }
     }
@@ -454,7 +454,7 @@ struct GameSettingsView: View {
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
             guard let data = try? Data(contentsOf: url), profiles.importJSON(data) else {
-                message = "File không phải cấu hình phím của JarBox."
+                message = "File không phải cấu hình phím của KUONTPL."
                 return
             }
             profileIndex = profiles.activeIndex

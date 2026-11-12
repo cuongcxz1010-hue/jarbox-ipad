@@ -173,7 +173,7 @@ final class VKeyView: UIView {
     }
 }
 
-/// The Menu key: a real button so it can open the JarBox menu.
+/// The Menu key: a real button so it can open the KUONTPL menu.
 final class VMenuButton: UIButton {
     let face: VKeyView
 

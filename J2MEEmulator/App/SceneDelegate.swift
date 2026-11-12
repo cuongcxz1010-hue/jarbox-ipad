@@ -40,7 +40,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window?.rootViewController = nav
         window?.makeKeyAndVisible()
 
-        // Launched by "Open in JarBox" / share sheet with a .jar file
+        // Launched by "Open in KUONTPL" / share sheet with a .jar file
         vc.importFiles(connectionOptions.urlContexts.map { $0.url })
     }
 

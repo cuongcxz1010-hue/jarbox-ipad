@@ -1,4 +1,4 @@
-# Bảng tương thích JarBox
+# Bảng tương thích KUONTPL
 
 Bảng này chỉ ghi những gì đã thực sự chạy thử. Mục chưa thử được ghi rõ là chưa thử.
 
@@ -10,7 +10,7 @@ Bảng này chỉ ghi những gì đã thực sự chạy thử. Mục chưa th�
 | `test_midlet/selftest` | Kiểm tra tự động: máy ảo, MIDP, quy tắc vẽ từng điểm ảnh, luồng, RMS, mạng | Windows, iOS Simulator |
 | `test_midlet/demo` | Cảnh động có sprite, ô nền, chữ, đo FPS | Windows, iOS Simulator |
 | `.github/workflows/simulator-test.yml` | Build rồi chạy thử trên iPad và iPhone ảo, lưu ảnh chụp và nhật ký | GitHub Actions |
-| `tools/ApiCheck.java` | So API của JarBox với API MIDP 2.0 / CLDC thật theo từng phương thức | Windows, CI |
+| `tools/ApiCheck.java` | So API của KUONTPL với API MIDP 2.0 / CLDC thật theo từng phương thức | Windows, CI |
 
 ## Kết quả game thật
 

@@ -80,7 +80,7 @@ enum ControlCatalog {
             VKeySpec(id: "downRight", name: "Chéo xuống phải", label: "↘", codes: [J2MEKey.down, J2MEKey.right], group: .arrows),
             VKeySpec(id: "softL", name: "Phím mềm trái (L)", label: "L", codes: [J2MEKey.softLeft], group: .soft),
             VKeySpec(id: "softR", name: "Phím mềm phải (R)", label: "R", codes: [J2MEKey.softRight], group: .soft),
-            VKeySpec(id: "menu", name: "Menu của JarBox", label: "≡", codes: [], group: .menu),
+            VKeySpec(id: "menu", name: "Menu của KUONTPL", label: "≡", codes: [], group: .menu),
             VKeySpec(id: "clear", name: "Phím C / Back (xóa, quay lại)", label: "C", codes: [J2MEKey.clear], group: .extra),
             VKeySpec(id: "call", name: "Phím Gọi", label: "Gọi", codes: [J2MEKey.call], group: .extra),
             VKeySpec(id: "end", name: "Phím Tắt", label: "Tắt", codes: [J2MEKey.end], group: .extra),

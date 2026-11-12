@@ -12,7 +12,7 @@
 
 /* Begin PBXFileReference section */
 		8A8109482F6F18CB00E5A952 /* CoreHaptics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreHaptics.framework; path = System/Library/Frameworks/CoreHaptics.framework; sourceTree = SDKROOT; };
-		8A8184DE2F6C9DD500E5A952 /* JarBox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JarBox.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8A8184DE2F6C9DD500E5A952 /* KUONTPL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KUONTPL.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -128,7 +128,7 @@
 		8A8184DF2F6C9DD500E5A952 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8A8184DE2F6C9DD500E5A952 /* JarBox.app */,
+				8A8184DE2F6C9DD500E5A952 /* KUONTPL.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -155,7 +155,7 @@
 			packageProductDependencies = (
 			);
 			productName = J2MEEmulator;
-			productReference = 8A8184DE2F6C9DD500E5A952 /* JarBox.app */;
+			productReference = 8A8184DE2F6C9DD500E5A952 /* KUONTPL.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -235,6 +235,7 @@
 					"$(SRCROOT)/J2MEEmulator/NativeBridge/m3g",
 				);
 				INFOPLIST_FILE = J2MEEmulator/SupportingFiles/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = KUONTPL;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -261,7 +262,7 @@
 				);
 				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_BUNDLE_IDENTIFIER = "vn.jarbox.ipad.player";
-				PRODUCT_NAME = JarBox;
+				PRODUCT_NAME = KUONTPL;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -299,6 +300,7 @@
 					"$(SRCROOT)/J2MEEmulator/NativeBridge/m3g",
 				);
 				INFOPLIST_FILE = J2MEEmulator/SupportingFiles/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = KUONTPL;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -326,7 +328,7 @@
 				);
 				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_BUNDLE_IDENTIFIER = "vn.jarbox.ipad.player";
-				PRODUCT_NAME = JarBox;
+				PRODUCT_NAME = KUONTPL;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;

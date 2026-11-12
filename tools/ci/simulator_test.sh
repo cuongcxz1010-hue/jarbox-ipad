@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run the built app in the iOS Simulator (iPad and iPhone) with test MIDlets,
 # save screenshots and logs. Usage:
-#   simulator_test.sh <JarBox.app> <jar directory> <output directory>
+#   simulator_test.sh <KUONTPL.app> <jar directory> <output directory>
 set -u
 
 APP="$1"
@@ -40,7 +40,7 @@ run_scenario() {
     done
     local container
     container=$(xcrun simctl get_app_container "$udid" "$BUNDLE" data)
-    cp "$container/Documents/logs/jarbox-log.txt" "$OUT/${label}.log" 2>/dev/null
+    cp "$container/Documents/logs/kuontpl-log.txt" "$OUT/${label}.log" 2>/dev/null
     grep -E "SELFTEST|\[TEST\] FAIL" "$OUT/${label}.log" | head -40
     xcrun simctl terminate "$udid" "$BUNDLE" 2>/dev/null
 }

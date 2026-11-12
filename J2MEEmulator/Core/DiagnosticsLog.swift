@@ -3,10 +3,10 @@
 //  J2MEEmulator
 //
 //  Writes everything printed by Swift, the C bridge / miniJVM and Java
-//  (System.out / System.err) to Documents/logs/jarbox-log.txt so problems on a
+//  (System.out / System.err) to Documents/logs/kuontpl-log.txt so problems on a
 //  sideloaded device can be diagnosed without Xcode. The folder is visible in
-//  the Files app under "On My iPad › JarBox › logs". The previous session is
-//  kept as jarbox-log-previous.txt (useful after a crash).
+//  the Files app under "On My iPad › KUONTPL › logs". The previous session is
+//  kept as kuontpl-log-previous.txt (useful after a crash).
 //
 
 import Foundation
@@ -17,14 +17,18 @@ nonisolated enum DiagnosticsLog {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("logs", isDirectory: true)
     }
-    static var currentURL: URL { logsDirectory.appendingPathComponent("jarbox-log.txt") }
-    static var previousURL: URL { logsDirectory.appendingPathComponent("jarbox-log-previous.txt") }
+    static var currentURL: URL { logsDirectory.appendingPathComponent("kuontpl-log.txt") }
+    static var previousURL: URL { logsDirectory.appendingPathComponent("kuontpl-log-previous.txt") }
     private static var runningMarkerURL: URL { logsDirectory.appendingPathComponent(".running-game") }
 
     /// Redirect stdout/stderr to the log file. Call once, as early as possible.
     static func start() {
         let fm = FileManager.default
         try? fm.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
+        // Log files from versions before the rename
+        for old in ["jarbox-log.txt", "jarbox-log-previous.txt"] {
+            try? fm.removeItem(at: logsDirectory.appendingPathComponent(old))
+        }
         if fm.fileExists(atPath: currentURL.path) {
             try? fm.removeItem(at: previousURL)
             try? fm.moveItem(at: currentURL, to: previousURL)
@@ -43,7 +47,7 @@ nonisolated enum DiagnosticsLog {
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? "?"
         let build = info["CFBundleVersion"] as? String ?? "?"
-        print("=== JarBox \(version) (\(build)) | \(machine) | \(ProcessInfo.processInfo.operatingSystemVersionString) | \(Date()) ===")
+        print("=== KUONTPL \(version) (\(build)) | \(machine) | \(ProcessInfo.processInfo.operatingSystemVersionString) | \(Date()) ===")
     }
 
     /// Current size of the log; pass it to `failureSummary(since:)` later.

@@ -60,7 +60,7 @@ struct GameStorage {
             if fm.fileExists(atPath: jad.path) { try fm.copyItem(at: jad, to: stage.appendingPathComponent(jad.lastPathComponent)) }
             if fm.fileExists(atPath: dataDirectory.path) { try fm.copyItem(at: dataDirectory, to: stage.appendingPathComponent("data")) }
             try Data("JarBox backup 1\n".utf8).write(to: stage.appendingPathComponent(Self.marker))
-            let out = fm.temporaryDirectory.appendingPathComponent(jar.deletingPathExtension().lastPathComponent + ".jarbox.zip")
+            let out = fm.temporaryDirectory.appendingPathComponent(jar.deletingPathExtension().lastPathComponent + ".kuontpl.zip")
             return jarbox_zip_directory(stage.path, out.path) != 0 ? out : nil
         } catch {
             print("[Storage] Backup failed: \(error)")
@@ -69,6 +69,12 @@ struct GameStorage {
     }
 
     static let marker = "JARBOX-BACKUP.txt"
+
+    /// Backup files: ".kuontpl.zip", and ".jarbox.zip" from versions before the rename.
+    nonisolated static func isBackupFile(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        return name.hasSuffix(".kuontpl.zip") || name.hasSuffix(".jarbox.zip")
+    }
 
     /// Restore a backup file. Returns the file name of the restored JAR.
     static func importBackup(from zip: URL, gamesDirectory: String) -> String? {

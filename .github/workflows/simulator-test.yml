@@ -74,7 +74,7 @@ jobs:
             exit 1
           fi
           tail -3 "$LOG"
-          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphonesimulator/JarBox.app"
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphonesimulator/KUONTPL.app"
           cp J2MEEmulator/Resources/jars/minijvm_rt.jar "$APP/minijvm_rt.jar"
           cp J2MEEmulator/Resources/jars/j2me_api.jar "$APP/j2me_api.jar"
           echo "APP=$APP" >> "$GITHUB_ENV"
