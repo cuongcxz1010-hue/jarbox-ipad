@@ -20,7 +20,7 @@ def build(rt, api, source, main, output):
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("META-INF/MANIFEST.MF",
                        "Manifest-Version: 1.0\r\nMIDlet-Name: KUONTPL %s\r\nMIDlet-Version: 1.0\r\n"
-                       "MIDlet-Vendor: JarBox\r\nMIDlet-1: %s,,%s\r\n\r\n" % (main, main, main))
+                       "MIDlet-Vendor: KUONTPL\r\nMIDlet-1: %s,,%s\r\n\r\n" % (main, main, main))
             for root, _, names in os.walk(tmp):
                 for n in names:
                     path = os.path.join(root, n)

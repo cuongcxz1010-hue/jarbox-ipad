@@ -115,7 +115,7 @@ def main(rt, api, output):
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("META-INF/MANIFEST.MF",
                        "Manifest-Version: 1.0\r\nMIDlet-Name: KUONTPL SelfTest\r\nMIDlet-Version: 1.0\r\n"
-                       "MIDlet-Vendor: JarBox\r\nMIDlet-1: SelfTest,,SelfTest\r\nSelfTest-Key: SelfValue\r\n"
+                       "MIDlet-Vendor: KUONTPL\r\nMIDlet-1: SelfTest,,SelfTest\r\nSelfTest-Key: SelfValue\r\n"
                        "MicroEdition-Profile: MIDP-2.0\r\nMicroEdition-Configuration: CLDC-1.1\r\n\r\n")
             z.writestr("test.png", test_png())
             for root, _, names in os.walk(classes):
